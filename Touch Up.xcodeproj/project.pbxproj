@@ -1,0 +1,577 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		701C965329C9E51500CA833C /* TUCScreen.h in Headers */ = {isa = PBXBuildFile; fileRef = 701C965129C9E51500CA833C /* TUCScreen.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		701C965429C9E51500CA833C /* TUCScreen.m in Sources */ = {isa = PBXBuildFile; fileRef = 701C965229C9E51500CA833C /* TUCScreen.m */; };
+		702F2BA7298D448D00415DEA /* TUCTouch.h in Headers */ = {isa = PBXBuildFile; fileRef = 702F2BA5298D448D00415DEA /* TUCTouch.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		702F2BA8298D448D00415DEA /* TUCTouch.m in Sources */ = {isa = PBXBuildFile; fileRef = 702F2BA6298D448D00415DEA /* TUCTouch.m */; };
+		702F2BAA298D57BD00415DEA /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702F2BA9298D57BD00415DEA /* SettingsView.swift */; };
+		704B2C6929978B2900A1DE4D /* DebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 704B2C6829978B2900A1DE4D /* DebugView.swift */; };
+		704B2C6C2997B5A000A1DE4D /* TUCCursorUtilities.h in Headers */ = {isa = PBXBuildFile; fileRef = 704B2C6A2997B5A000A1DE4D /* TUCCursorUtilities.h */; };
+		704B2C6D2997B5A000A1DE4D /* TUCCursorUtilities.m in Sources */ = {isa = PBXBuildFile; fileRef = 704B2C6B2997B5A000A1DE4D /* TUCCursorUtilities.m */; };
+		7052F430298D2D280066014F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7052F42F298D2D280066014F /* AppDelegate.swift */; };
+		7052F432298D2D280066014F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7052F431298D2D280066014F /* Assets.xcassets */; };
+		7052F435298D2D280066014F /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 7052F433298D2D280066014F /* MainMenu.xib */; };
+		7052F444298D2DAB0066014F /* TouchUpCore.h in Headers */ = {isa = PBXBuildFile; fileRef = 7052F443298D2DAB0066014F /* TouchUpCore.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		7052F447298D2DAB0066014F /* TouchUpCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7052F441298D2DAB0066014F /* TouchUpCore.framework */; };
+		7052F448298D2DAB0066014F /* TouchUpCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7052F441298D2DAB0066014F /* TouchUpCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		7052F44E298D2E6A0066014F /* TUCTouchDelegate.h in Headers */ = {isa = PBXBuildFile; fileRef = 7052F44D298D2E6A0066014F /* TUCTouchDelegate.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		7052F452298D2ECF0066014F /* TUCTouchInputManager-C.h in Headers */ = {isa = PBXBuildFile; fileRef = 7052F451298D2ECB0066014F /* TUCTouchInputManager-C.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		7052F455298D30D10066014F /* HIDInterpreter.h in Headers */ = {isa = PBXBuildFile; fileRef = 7052F453298D30D10066014F /* HIDInterpreter.h */; };
+		7052F456298D30D10066014F /* HIDInterpreter.c in Sources */ = {isa = PBXBuildFile; fileRef = 7052F454298D30D10066014F /* HIDInterpreter.c */; };
+		7052F459298D3A450066014F /* TUCTouchInputManager.h in Headers */ = {isa = PBXBuildFile; fileRef = 7052F457298D3A450066014F /* TUCTouchInputManager.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		7052F45A298D3A450066014F /* TUCTouchInputManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 7052F458298D3A450066014F /* TUCTouchInputManager.m */; };
+		70C8D697298D5D2B00CFA6D4 /* TouchUp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70C8D696298D5D2B00CFA6D4 /* TouchUp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		7052F445298D2DAB0066014F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7052F424298D2D280066014F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7052F440298D2DAB0066014F;
+			remoteInfo = "HID Touch Input";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		7052F44C298D2DAB0066014F /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				7052F448298D2DAB0066014F /* TouchUpCore.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		701C965129C9E51500CA833C /* TUCScreen.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TUCScreen.h; sourceTree = "<group>"; };
+		701C965229C9E51500CA833C /* TUCScreen.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TUCScreen.m; sourceTree = "<group>"; };
+		702F2BA5298D448D00415DEA /* TUCTouch.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TUCTouch.h; sourceTree = "<group>"; };
+		702F2BA6298D448D00415DEA /* TUCTouch.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TUCTouch.m; sourceTree = "<group>"; };
+		702F2BA9298D57BD00415DEA /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		704B2C6829978B2900A1DE4D /* DebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugView.swift; sourceTree = "<group>"; };
+		704B2C6A2997B5A000A1DE4D /* TUCCursorUtilities.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TUCCursorUtilities.h; sourceTree = "<group>"; };
+		704B2C6B2997B5A000A1DE4D /* TUCCursorUtilities.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TUCCursorUtilities.m; sourceTree = "<group>"; };
+		7052F42C298D2D280066014F /* Touch Up.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Touch Up.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7052F42F298D2D280066014F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		7052F431298D2D280066014F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		7052F434298D2D280066014F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
+		7052F436298D2D280066014F /* Touch_Up.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Touch_Up.entitlements; sourceTree = "<group>"; };
+		7052F441298D2DAB0066014F /* TouchUpCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = TouchUpCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		7052F443298D2DAB0066014F /* TouchUpCore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TouchUpCore.h; sourceTree = "<group>"; };
+		7052F44D298D2E6A0066014F /* TUCTouchDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TUCTouchDelegate.h; sourceTree = "<group>"; };
+		7052F451298D2ECB0066014F /* TUCTouchInputManager-C.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "TUCTouchInputManager-C.h"; sourceTree = "<group>"; };
+		7052F453298D30D10066014F /* HIDInterpreter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HIDInterpreter.h; sourceTree = "<group>"; };
+		7052F454298D30D10066014F /* HIDInterpreter.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = HIDInterpreter.c; sourceTree = "<group>"; };
+		7052F457298D3A450066014F /* TUCTouchInputManager.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TUCTouchInputManager.h; sourceTree = "<group>"; };
+		7052F458298D3A450066014F /* TUCTouchInputManager.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TUCTouchInputManager.m; sourceTree = "<group>"; };
+		70C8D696298D5D2B00CFA6D4 /* TouchUp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TouchUp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7052F429298D2D280066014F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7052F447298D2DAB0066014F /* TouchUpCore.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7052F43E298D2DAB0066014F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		7052F423298D2D280066014F = {
+			isa = PBXGroup;
+			children = (
+				7052F42E298D2D280066014F /* Touch Up */,
+				7052F442298D2DAB0066014F /* TouchUpCore */,
+				7052F42D298D2D280066014F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7052F42D298D2D280066014F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				7052F42C298D2D280066014F /* Touch Up.app */,
+				7052F441298D2DAB0066014F /* TouchUpCore.framework */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		7052F42E298D2D280066014F /* Touch Up */ = {
+			isa = PBXGroup;
+			children = (
+				70C8D696298D5D2B00CFA6D4 /* TouchUp.swift */,
+				7052F42F298D2D280066014F /* AppDelegate.swift */,
+				702F2BA9298D57BD00415DEA /* SettingsView.swift */,
+				704B2C6829978B2900A1DE4D /* DebugView.swift */,
+				7052F431298D2D280066014F /* Assets.xcassets */,
+				7052F433298D2D280066014F /* MainMenu.xib */,
+				7052F436298D2D280066014F /* Touch_Up.entitlements */,
+			);
+			path = "Touch Up";
+			sourceTree = "<group>";
+		};
+		7052F442298D2DAB0066014F /* TouchUpCore */ = {
+			isa = PBXGroup;
+			children = (
+				7052F443298D2DAB0066014F /* TouchUpCore.h */,
+				701C965129C9E51500CA833C /* TUCScreen.h */,
+				701C965229C9E51500CA833C /* TUCScreen.m */,
+				704B2C6A2997B5A000A1DE4D /* TUCCursorUtilities.h */,
+				704B2C6B2997B5A000A1DE4D /* TUCCursorUtilities.m */,
+				702F2BA5298D448D00415DEA /* TUCTouch.h */,
+				702F2BA6298D448D00415DEA /* TUCTouch.m */,
+				7052F44D298D2E6A0066014F /* TUCTouchDelegate.h */,
+				7052F457298D3A450066014F /* TUCTouchInputManager.h */,
+				7052F451298D2ECB0066014F /* TUCTouchInputManager-C.h */,
+				7052F458298D3A450066014F /* TUCTouchInputManager.m */,
+				7052F453298D30D10066014F /* HIDInterpreter.h */,
+				7052F454298D30D10066014F /* HIDInterpreter.c */,
+			);
+			path = TouchUpCore;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXHeadersBuildPhase section */
+		7052F43C298D2DAB0066014F /* Headers */ = {
+			isa = PBXHeadersBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				702F2BA7298D448D00415DEA /* TUCTouch.h in Headers */,
+				7052F452298D2ECF0066014F /* TUCTouchInputManager-C.h in Headers */,
+				7052F44E298D2E6A0066014F /* TUCTouchDelegate.h in Headers */,
+				704B2C6C2997B5A000A1DE4D /* TUCCursorUtilities.h in Headers */,
+				7052F444298D2DAB0066014F /* TouchUpCore.h in Headers */,
+				701C965329C9E51500CA833C /* TUCScreen.h in Headers */,
+				7052F455298D30D10066014F /* HIDInterpreter.h in Headers */,
+				7052F459298D3A450066014F /* TUCTouchInputManager.h in Headers */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXHeadersBuildPhase section */
+
+/* Begin PBXNativeTarget section */
+		7052F42B298D2D280066014F /* Touch Up */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7052F439298D2D280066014F /* Build configuration list for PBXNativeTarget "Touch Up" */;
+			buildPhases = (
+				7052F428298D2D280066014F /* Sources */,
+				7052F429298D2D280066014F /* Frameworks */,
+				7052F42A298D2D280066014F /* Resources */,
+				7052F44C298D2DAB0066014F /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7052F446298D2DAB0066014F /* PBXTargetDependency */,
+			);
+			name = "Touch Up";
+			productName = "Touch Up";
+			productReference = 7052F42C298D2D280066014F /* Touch Up.app */;
+			productType = "com.apple.product-type.application";
+		};
+		7052F440298D2DAB0066014F /* TouchUpCore */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7052F449298D2DAB0066014F /* Build configuration list for PBXNativeTarget "TouchUpCore" */;
+			buildPhases = (
+				7052F43C298D2DAB0066014F /* Headers */,
+				7052F43D298D2DAB0066014F /* Sources */,
+				7052F43E298D2DAB0066014F /* Frameworks */,
+				7052F43F298D2DAB0066014F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TouchUpCore;
+			productName = "HID Touch Input";
+			productReference = 7052F441298D2DAB0066014F /* TouchUpCore.framework */;
+			productType = "com.apple.product-type.framework";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7052F424298D2D280066014F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1420;
+				LastUpgradeCheck = 1420;
+				TargetAttributes = {
+					7052F42B298D2D280066014F = {
+						CreatedOnToolsVersion = 14.2;
+					};
+					7052F440298D2DAB0066014F = {
+						CreatedOnToolsVersion = 14.2;
+					};
+				};
+			};
+			buildConfigurationList = 7052F427298D2D280066014F /* Build configuration list for PBXProject "Touch Up" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 7052F423298D2D280066014F;
+			productRefGroup = 7052F42D298D2D280066014F /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				7052F42B298D2D280066014F /* Touch Up */,
+				7052F440298D2DAB0066014F /* TouchUpCore */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7052F42A298D2D280066014F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7052F432298D2D280066014F /* Assets.xcassets in Resources */,
+				7052F435298D2D280066014F /* MainMenu.xib in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7052F43F298D2DAB0066014F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7052F428298D2D280066014F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				704B2C6929978B2900A1DE4D /* DebugView.swift in Sources */,
+				7052F430298D2D280066014F /* AppDelegate.swift in Sources */,
+				702F2BAA298D57BD00415DEA /* SettingsView.swift in Sources */,
+				70C8D697298D5D2B00CFA6D4 /* TouchUp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7052F43D298D2DAB0066014F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				701C965429C9E51500CA833C /* TUCScreen.m in Sources */,
+				704B2C6D2997B5A000A1DE4D /* TUCCursorUtilities.m in Sources */,
+				7052F456298D30D10066014F /* HIDInterpreter.c in Sources */,
+				702F2BA8298D448D00415DEA /* TUCTouch.m in Sources */,
+				7052F45A298D3A450066014F /* TUCTouchInputManager.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7052F446298D2DAB0066014F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7052F440298D2DAB0066014F /* TouchUpCore */;
+			targetProxy = 7052F445298D2DAB0066014F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		7052F433298D2D280066014F /* MainMenu.xib */ = {
+			isa = PBXVariantGroup;
+			children = (
+				7052F434298D2D280066014F /* Base */,
+			);
+			name = MainMenu.xib;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		7052F437298D2D280066014F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.1;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		7052F438298D2D280066014F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.1;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		7052F43A298D2D280066014F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Touch Up/Touch_Up.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 6;
+				DEVELOPMENT_TEAM = X4TGVF799P;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainNibFile = MainMenu;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "de.schafe.Touch-Up2";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		7052F43B298D2D280066014F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Touch Up/Touch_Up.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 6;
+				DEVELOPMENT_TEAM = X4TGVF799P;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainNibFile = MainMenu;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "de.schafe.Touch-Up2";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		7052F44A298D2DAB0066014F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DEVELOPMENT_TEAM = X4TGVF799P;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.13;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "de.schafe.HID-Touch-Input";
+				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				VERSIONING_SYSTEM = "apple-generic";
+				VERSION_INFO_PREFIX = "";
+			};
+			name = Debug;
+		};
+		7052F44B298D2DAB0066014F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DEVELOPMENT_TEAM = X4TGVF799P;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.13;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "de.schafe.HID-Touch-Input";
+				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				VERSIONING_SYSTEM = "apple-generic";
+				VERSION_INFO_PREFIX = "";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		7052F427298D2D280066014F /* Build configuration list for PBXProject "Touch Up" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7052F437298D2D280066014F /* Debug */,
+				7052F438298D2D280066014F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7052F439298D2D280066014F /* Build configuration list for PBXNativeTarget "Touch Up" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7052F43A298D2D280066014F /* Debug */,
+				7052F43B298D2D280066014F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7052F449298D2DAB0066014F /* Build configuration list for PBXNativeTarget "TouchUpCore" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7052F44A298D2DAB0066014F /* Debug */,
+				7052F44B298D2DAB0066014F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 7052F424298D2D280066014F /* Project object */;
+}
