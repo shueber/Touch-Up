@@ -14,10 +14,10 @@ struct SettingsView: View {
     
     var welcomeBanner: some View {
         Group {
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Welcome to Touch Up 🐑")
                     .font(.largeTitle)
-                Text("Touch Up interprets digitizer data from any USB HID touchscreen to mouse events. This menas you can use any Windows certified touchscreen to control your Mac! The injection of mouse events requires accessibility APIs. You can allow this by clicking the button below.")
+                Text("Touch Up converts USB HID data from any Windows certified touchscreen to mouse events.\nInjecting mouse events requires access to accessibility APIs. You can allow this by clicking the button below.")
             }
             
             HStack {
@@ -162,7 +162,14 @@ struct SettingsView: View {
         if #available(macOS 13.0, *) {
             return Form {
                 if !model.isAccessibilityAccessGranted {
-                    welcomeBanner
+                    Section {
+                        welcomeBanner
+                    } footer: {
+                        Rectangle()
+                            .frame(width:0, height:0)
+                            .foregroundColor(.clear)
+                    }
+
                 }
                 
                 Section {
