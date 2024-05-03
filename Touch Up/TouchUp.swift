@@ -205,7 +205,7 @@ extension TouchUp {
             
             "isScrollingWithOneFingerEnabled" : true,
             "isSecondaryClickEnabled" : true,
-            "isMagnificationEnabled" : false,
+            "isMagnificationEnabled" : true,
             "isClickWindowToFrontEnabled" : false,
             "isClickOnLiftEnabled" : false
         ])
@@ -333,7 +333,7 @@ extension TouchUp {
             
         case \.isSecondaryClickEnabled:
             return("Secondary Click",
-                   "While pointing with one finger, tap another finger in proximity to the first finger to generate a secondary click event at the location of the first finger.")
+                   "While your pointing finger is resting on the screen, tap another finger in proximity to it to generate a secondary click event at the location of the first finger.")
             
         case \.isMagnificationEnabled:
             return("Magnification",

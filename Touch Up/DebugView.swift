@@ -104,3 +104,10 @@ struct DebugView_Previews: PreviewProvider {
         DebugView(model: TouchUp(), closeAction: {})
     }
 }
+
+
+extension View {
+    func modify<T: View>(@ViewBuilder _ modifier: (Self) -> T) -> some View {
+        return modifier(self)
+    }
+}

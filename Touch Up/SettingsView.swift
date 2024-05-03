@@ -28,13 +28,7 @@ struct SettingsView: View {
                     
                     Text("Grant Accessibility Access")
                 }
-                .modify {
-                    if #available(macOS 12.0, *) {
-                        $0.buttonStyle(BorderedProminentButtonStyle())
-                    }
-                }
-                
-                
+                .buttonStyle(BorderedProminentButtonStyle())
             }
         }
     }
@@ -76,11 +70,6 @@ struct SettingsView: View {
                 SettingsExplanationLabel(labels: ("On Finger Drag", "Specify which action should occur when dragging one finger on the touch screen."))
             }
 
-
-            
-//            Toggle(isOn: $model.isScrollingWithOneFingerEnabled) {
-//                SettingsExplanationLabel(labels: model.uiLabels(for: \.isScrollingWithOneFingerEnabled))
-//            }
             
             Toggle(isOn: $model.isSecondaryClickEnabled) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.isSecondaryClickEnabled))
@@ -123,9 +112,16 @@ struct SettingsView: View {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.ignoreOriginTouches))
             }
             
-            Button("Open Fullscreen Test Environment") {
+            Button(action: {
                 (NSApp.delegate as? AppDelegate)?.showDebugOverlay()
-            }
+            }, label: {
+                HStack {
+                    Text("Open Fullscreen Test Environment")
+                    Spacer()
+                    Image(systemName: "arrow.up.forward.app.fill")
+                }
+                
+            })
             .foregroundColor(.accentColor)
             .buttonStyle(PlainButtonStyle())
             
@@ -146,7 +142,7 @@ struct SettingsView: View {
                     .font(.footnote)
                 
                 Link(destination: URL(string: "https://github.com/shueber/Touch-Up")!, label: {
-                    Text("github.com/shueber/Touch-Up")
+                    Label("GitHub", systemImage: "link")
                         .foregroundColor(.accentColor)
                 })
             }
@@ -281,14 +277,5 @@ struct SettingsExplanationLabel: View {
 struct SettingsView_Previews: PreviewProvider {
     static var previews: some View {
         SettingsView(model: TouchUp())
-    }
-}
-
-
-
-
-extension View {
-    func modify<T: View>(@ViewBuilder _ modifier: (Self) -> T) -> some View {
-        return modifier(self)
     }
 }

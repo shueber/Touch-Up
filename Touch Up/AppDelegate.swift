@@ -16,7 +16,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let model = TouchUp()
     
     
-    
     var statusItem: NSStatusItem!
     @IBOutlet weak var statusMenu: NSMenu!
     @IBOutlet weak var activationMenuItem: NSMenuItem!
@@ -25,7 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     
     
-    lazy var settingsWindow: SettingsWindow  = {
+    lazy var settingsWindow: SettingsWindow = {
         return SettingsWindow.window(model: self.model)
     }()
     
@@ -49,7 +48,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.model.$connectionState
                 .receive(on: DispatchQueue.main)
                 .sink{status in
-                    print("NEEEWWW STATUS\(status)!!!")
                     DispatchQueue.main.async {
                         self.statusItem.button?.image = status.image
                     }
