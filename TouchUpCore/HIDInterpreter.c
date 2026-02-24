@@ -575,6 +575,9 @@ static void Handle_RemovalCallback(
 ) {
     printf("%s(context: %p, result: %p, sender: %p, device: %p).\n",
         __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
+
+    if (!gQueue) return;
+
     IOHIDQueueStop(gQueue);
     CFRelease(gQueue);
     gQueue = NULL;
