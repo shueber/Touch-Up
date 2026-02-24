@@ -181,6 +181,35 @@ void StoreInputValue(IOHIDValueRef hidValue) {
 
 
 
+/**
+ Check whether a logical collection contains pen-specific HID usages
+ (TipPressure, BarrelPressure, XTilt, YTilt, BarrelSwitch, Eraser).
+ Returns TRUE if at least one pen-specific element is found.
+ */
+static Boolean IsPenCollection(IOHIDElementRef collection) {
+    CFArrayRef children = IOHIDElementGetChildren(collection);
+    if (!children) return FALSE;
+    for (CFIndex i = 0; i < CFArrayGetCount(children); i++) {
+        IOHIDElementRef child = (IOHIDElementRef)CFArrayGetValueAtIndex(children, i);
+        CFIndex page  = IOHIDElementGetUsagePage(child);
+        CFIndex usage = IOHIDElementGetUsage(child);
+        if (page == kHIDPage_Digitizer) {
+            switch (usage) {
+                case kHIDUsage_Dig_TipPressure:    // 0x30
+                case kHIDUsage_Dig_BarrelPressure: // 0x31
+                case kHIDUsage_Dig_XTilt:          // 0x3D
+                case kHIDUsage_Dig_YTilt:          // 0x3E
+                case kHIDUsage_Dig_BarrelSwitch:   // 0x44
+                case kHIDUsage_Dig_Eraser:         // 0x45
+                    return TRUE;
+                default:
+                    break;
+            }
+        }
+    }
+    return FALSE;
+}
+
 
 /**
  We need to inspect the HID tree as a whole once to see which elements are grouped into logical groups of touch data.
@@ -221,6 +250,14 @@ void IdentifyElements(IOHIDElementRef anyElement, Boolean printTree) {
         IOHIDElementCollectionType collectionType = IOHIDElementGetCollectionType(element);
         
         if (type == kIOHIDElementTypeCollection && collectionType == kIOHIDElementCollectionTypeLogical) {
+
+            // skip logical collections that contain pen-specific elements
+            // (pressure, tilt, barrel) so only finger-touch collections
+            // feed into the mouse mapping logic
+            if (IsPenCollection(element)) {
+                continue;
+            }
+
             CFArrayAppendValue(gTouchCollectionElements, element);
             
             if (printTree) {
@@ -538,6 +575,9 @@ static void Handle_RemovalCallback(
 ) {
     printf("%s(context: %p, result: %p, sender: %p, device: %p).\n",
         __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
+
+    if (!gQueue) return;
+
     IOHIDQueueStop(gQueue);
     CFRelease(gQueue);
     gQueue = NULL;
