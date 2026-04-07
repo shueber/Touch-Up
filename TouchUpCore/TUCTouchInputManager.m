@@ -526,6 +526,15 @@
  */
 - (CGPoint)convertDigitizerPointToRelativeScreenPoint:(CGPoint)devicePoint {
     CGFloat rotation = [self touchscreen].rotation;
+    
+    CGFloat extra = [[self delegate] digitizerRotation];
+    
+    rotation += extra;
+    rotation = fmod(rotation, 360);
+    if (rotation < 0) {
+        rotation += 360;
+    }
+    
     if (rotation == 0) {
         return devicePoint;
         

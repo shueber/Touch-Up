@@ -29,6 +29,7 @@ class TouchUp: NSObject, ObservableObject {
     @Published var errorResistance: NSInteger = 0 // num of Reports to wait before cancelling a touch
     @Published var ignoreOriginTouches: Bool = false
     
+    @Published var additionalDigitizerRotation: CGFloat = 0
     
     
     @Published var isScrollingWithOneFingerEnabled = false
@@ -313,6 +314,10 @@ extension TouchUp: TUCTouchDelegate {
     func touchscreenDidDisconnect() {
         self.connectionState = .disconnected
     }
+    
+    func digitizerRotation() -> CGFloat {
+        return self.additionalDigitizerRotation
+    }
 }
 
 
@@ -363,6 +368,10 @@ extension TouchUp {
             return("Error Resistance",
                    "If your touchscreen is really unreliable at reporting touches, increase this slider to make inputs more stable at the cost of higher latency in detecting liftoffs.")
             
+        case \.additionalDigitizerRotation:
+            return("Digitizer Rotation",
+                   "If the digitizer orientation does not match the screen, change this value.")
+            
         default:
             return("\(keyPath)", "")
         }
@@ -399,7 +408,7 @@ enum ConnectionState: Int {
 }
                  
                  
-extension TUCScreen: Identifiable {
+extension TUCScreen: @retroactive Identifiable {
     func matching(name:String, id:UInt) -> Float {
         let sameName = self.name == name
         let sameID = self.id == id

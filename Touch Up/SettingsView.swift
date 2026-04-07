@@ -112,6 +112,16 @@ struct SettingsView: View {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.ignoreOriginTouches))
             }
             
+            
+            Picker(selection: $model.additionalDigitizerRotation) {
+                let rotations: [CGFloat] = [0.0, 90.0, 180.0, 270.0]
+                ForEach(rotations, id: \.self) {
+                    Text("\(Int($0))°").tag($0)
+                }
+            } label: {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.additionalDigitizerRotation))
+            }
+            
             Button(action: {
                 (NSApp.delegate as? AppDelegate)?.showDebugOverlay()
             }, label: {

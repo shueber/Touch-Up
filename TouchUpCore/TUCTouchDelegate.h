@@ -42,6 +42,8 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (TUCCursorAction)actionForGesture:(TUCCursorGesture)gesture;
 
+- (CGFloat)digitizerRotation;
+
 @end
 
 NS_ASSUME_NONNULL_END
