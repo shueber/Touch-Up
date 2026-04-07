@@ -7,8 +7,8 @@
 
 #import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
-#import "TUCTouch.h"
-#import "TUCScreen.h"
+#import <TouchUpCore/TUCTouch.h>
+#import <TouchUpCore/TUCScreen.h>
 
 NS_ASSUME_NONNULL_BEGIN
 

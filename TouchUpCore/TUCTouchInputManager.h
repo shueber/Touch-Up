@@ -6,9 +6,9 @@
 //
 
 #import <AppKit/AppKit.h>
-#import "TUCTouchInputManager-C.h"
-#import "TUCTouchDelegate.h"
-#import "TUCTouch.h"
+#import <TouchUpCore/TUCTouchInputManager-C.h>
+#import <TouchUpCore/TUCTouchDelegate.h>
+#import <TouchUpCore/TUCTouch.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
