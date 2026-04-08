@@ -55,7 +55,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 
 
-- (CGPoint)convertScreenPointRelativeToAbsolute:(CGPoint)relativePoint;
+- (CGPoint)convertScreenPointRelativeToAbsolute:(CGPoint)relativePoint locationID:(uint32_t)locationID;
 
 
 - (void)triggerSystemAccessibilityAccessAlert;

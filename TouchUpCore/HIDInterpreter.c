@@ -14,6 +14,37 @@
 
 #include <CoreGraphics/CoreGraphics.h>
 
+#pragma mark - Per-Device State
+
+#define kMaxTouchscreens 4
+
+typedef struct {
+    uint32_t                locationID;
+    Boolean                 isActive;
+    
+    IOHIDQueueRef           queue;
+    Boolean                 areElementRefsSet;
+    
+    IOHIDElementRef         applicationCollectionElement;
+    IOHIDElementRef         scanTimeElement;
+    CFMutableArrayRef       touchCollectionElements;
+    
+    /**
+     stores values for the touch collections: cookie -> latest value
+     in hybrid mode (especially if order of touches moves) this data has to be set to last state per collection element receiving touches now
+     */
+    CFMutableDictionaryRef  storedInputValues;
+    
+    CFMutableArrayRef       contactIdentifiers;
+    
+    CFIndex                 contactCount;
+    CFIndex                 hybridOffset;
+    Boolean                 touchscreenUsesHybridMode;
+} HIDDeviceState;
+
+static HIDDeviceState gDevices[kMaxTouchscreens];
+static int gDeviceCount = 0;
+
 #pragma mark - Global variables
 
 static void* gTouchManager;
@@ -22,28 +53,68 @@ static CFRunLoopRef gRunLoopRef;
 
 static IOHIDManagerRef gHidManager;
 
-IOHIDQueueRef gQueue;
+
+#pragma mark - Device State Management
 
 
-uint8_t gAreElementRefsSet = 0;
-
-IOHIDElementRef         gApplicationCollectionElement;
-IOHIDElementRef         gScanTimeElement;
-CFMutableArrayRef       gTouchCollectionElements;
-
-/**
- stores values for the touch collections: cookie -> latest value
- in hybrid mode (especially if order of touches moves) this data has to be set to last state per collection element receiving touches now
- */
-CFMutableDictionaryRef  gStoredInputValues; //
+HIDDeviceState* DeviceStateForLocationID(uint32_t locationID) {
+    for (int i = 0; i < gDeviceCount; i++) {
+        if (gDevices[i].isActive && gDevices[i].locationID == locationID) {
+            return &gDevices[i];
+        }
+    }
+    return NULL;
+}
 
 
-CFIndex gContactCount = 1;
-CFIndex gHybridOffset = 0; // how many touches are already sent until this point?
-Boolean gTouchscreenUsesHybridMode = FALSE;
+HIDDeviceState* AllocateDeviceState(uint32_t locationID) {
+    if (gDeviceCount >= kMaxTouchscreens) {
+        fprintf(stderr, "Maximum number of touchscreens (%d) reached.\n", kMaxTouchscreens);
+        return NULL;
+    }
+    
+    HIDDeviceState *state = &gDevices[gDeviceCount];
+    memset(state, 0, sizeof(HIDDeviceState));
+    
+    state->locationID = locationID;
+    state->isActive = TRUE;
+    state->contactCount = 1;
+    state->touchCollectionElements = CFArrayCreateMutable(kCFAllocatorDefault, 0, NULL);
+    state->contactIdentifiers = CFArrayCreateMutable(kCFAllocatorDefault, 0, NULL);
+    state->storedInputValues = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, NULL, NULL);
+    
+    gDeviceCount++;
+    return state;
+}
 
 
-CFMutableArrayRef gContactIdentifiers;
+void DeallocateDeviceState(uint32_t locationID) {
+    int index = -1;
+    for (int i = 0; i < gDeviceCount; i++) {
+        if (gDevices[i].isActive && gDevices[i].locationID == locationID) {
+            index = i;
+            break;
+        }
+    }
+    if (index < 0) return;
+    
+    HIDDeviceState *state = &gDevices[index];
+    
+    if (state->queue) {
+        IOHIDQueueStop(state->queue);
+        CFRelease(state->queue);
+    }
+    if (state->touchCollectionElements) CFRelease(state->touchCollectionElements);
+    if (state->contactIdentifiers) CFRelease(state->contactIdentifiers);
+    if (state->storedInputValues) CFRelease(state->storedInputValues);
+    
+    // move last element into gap to keep array compact
+    gDeviceCount--;
+    if (index < gDeviceCount) {
+        gDevices[index] = gDevices[gDeviceCount];
+    }
+    memset(&gDevices[gDeviceCount], 0, sizeof(HIDDeviceState));
+}
 
 
 #pragma mark General Debug Utilities
@@ -121,7 +192,7 @@ int64_t StorageKeyForElement(IOHIDElementRef element) {
 
 
 
-CFIndex ValueOfElement(IOHIDElementRef element) {
+CFIndex ValueOfElement(HIDDeviceState *device, IOHIDElementRef element) {
     
     if (!element) {
         return kCFNotFound;
@@ -130,9 +201,9 @@ CFIndex ValueOfElement(IOHIDElementRef element) {
     int64_t hash = StorageKeyForElement(element);
     CFNumberRef key = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &hash);
     
-    if (CFDictionaryContainsKey(gStoredInputValues, key)) {
+    if (CFDictionaryContainsKey(device->storedInputValues, key)) {
         CFIndex value;
-        CFNumberRef num = CFDictionaryGetValue(gStoredInputValues, key);
+        CFNumberRef num = CFDictionaryGetValue(device->storedInputValues, key);
         CFNumberGetValue(num, kCFNumberCFIndexType, &value);
         CFRelease(key);
         return value;
@@ -140,12 +211,12 @@ CFIndex ValueOfElement(IOHIDElementRef element) {
     }
     CFRelease(key);
     return kCFNotFound;
-
+    
 }
 
 
 
-void StoreInputValue(IOHIDValueRef hidValue) {
+void StoreInputValue(HIDDeviceState *device, IOHIDValueRef hidValue) {
     
     CFIndex value = IOHIDValueGetIntegerValue(hidValue);
     IOHIDElementRef elem = IOHIDValueGetElement(hidValue);
@@ -156,26 +227,26 @@ void StoreInputValue(IOHIDValueRef hidValue) {
     
     CFNumberRef num = CFNumberCreate(kCFAllocatorDefault, kCFNumberCFIndexType, &value);
     
-    CFDictionarySetValue(gStoredInputValues, key, num);
+    CFDictionarySetValue(device->storedInputValues, key, num);
     
     CFRelease(num);
     CFRelease(key);
     
     
-    // special case: contact count could be zero in hybrid mode --> s
+    // special case: contact count could be zero in hybrid mode
     CFIndex page = IOHIDElementGetUsagePage(elem);
     CFIndex usage = IOHIDElementGetUsage(elem);
     
     if (page == kHIDPage_Digitizer && usage == kHIDUsage_Dig_ContactCount) {
         // hybrid mode can only exist if the old value is larger than the number of collections that can be communicated at once
-        CFIndex numCollections =  CFArrayGetCount(gTouchCollectionElements);
+        CFIndex numCollections = CFArrayGetCount(device->touchCollectionElements);
         
-        if (gContactCount > numCollections && value == 0 && gHybridOffset > 0) {
-            gTouchscreenUsesHybridMode = TRUE;
+        if (device->contactCount > numCollections && value == 0 && device->hybridOffset > 0) {
+            device->touchscreenUsesHybridMode = TRUE;
             
         } else {
-            gContactCount = value;
-            gHybridOffset = 0;
+            device->contactCount = value;
+            device->hybridOffset = 0;
         }
     }
 }
@@ -187,7 +258,7 @@ void StoreInputValue(IOHIDValueRef hidValue) {
  We need to inspect the HID tree as a whole once to see which elements are grouped into logical groups of touch data.
  Just pass in any element of the tree, the function will walk up the tree, search for the logical groups and rememeber them in the global variables.
  */
-void IdentifyElements(IOHIDElementRef anyElement, Boolean printTree) {
+void IdentifyElements(HIDDeviceState *device, IOHIDElementRef anyElement, Boolean printTree) {
     
     IOHIDElementRef applicationCollection = anyElement;
     IOHIDElementType type = kIOHIDElementTypeOutput;
@@ -202,7 +273,7 @@ void IdentifyElements(IOHIDElementRef anyElement, Boolean printTree) {
         }
     }
     
-    gApplicationCollectionElement = applicationCollection;
+    device->applicationCollectionElement = applicationCollection;
     
     
     CFArrayRef children = IOHIDElementGetChildren(applicationCollection);
@@ -222,7 +293,7 @@ void IdentifyElements(IOHIDElementRef anyElement, Boolean printTree) {
         IOHIDElementCollectionType collectionType = IOHIDElementGetCollectionType(element);
         
         if (type == kIOHIDElementTypeCollection && collectionType == kIOHIDElementCollectionTypeLogical) {
-            CFArrayAppendValue(gTouchCollectionElements, element);
+            CFArrayAppendValue(device->touchCollectionElements, element);
             
             if (printTree) {
                 printf(" > Logical collection %ld\n", i);
@@ -246,7 +317,7 @@ void IdentifyElements(IOHIDElementRef anyElement, Boolean printTree) {
         }
         
         else if (page == kHIDPage_Digitizer && usage == kHIDUsage_Dig_RelativeScanTime) {
-            gScanTimeElement = element;
+            device->scanTimeElement = element;
             if (printTree) {
                 printf(" > Scan Time\n");
             }
@@ -271,7 +342,7 @@ void IdentifyElements(IOHIDElementRef anyElement, Boolean printTree) {
 #pragma mark - Propagate Touch Data to next layer
 
 
-void PrintTouchCollection(IOHIDElementRef collection) {
+void PrintTouchCollection(HIDDeviceState *device, IOHIDElementRef collection) {
     CFArrayRef children = IOHIDElementGetChildren(collection);
     
     // get stored values of all touches
@@ -281,7 +352,7 @@ void PrintTouchCollection(IOHIDElementRef collection) {
         CFIndex page = IOHIDElementGetUsagePage(element);
         CFIndex usage = IOHIDElementGetUsage(element);
         CFIndex cookie = IOHIDElementGetCookie(element);
-        CFIndex value = ValueOfElement(element);
+        CFIndex value = ValueOfElement(device, element);
         
         char pageDescr[6]  = "(---)";
         char usageDescr[10] = "(-------)";
@@ -328,10 +399,10 @@ void PrintTouchCollection(IOHIDElementRef collection) {
  Dispatches touch data for the given collection, but only if all values needed were received
  */
 
-void DispatchTouchDataForCollection(IOHIDElementRef collection) {
+void DispatchTouchDataForCollection(HIDDeviceState *device, IOHIDElementRef collection) {
     
     CFArrayRef children = IOHIDElementGetChildren(collection);
-
+    
     CGFloat x = -1;
     CGFloat y = -1;
     
@@ -349,7 +420,7 @@ void DispatchTouchDataForCollection(IOHIDElementRef collection) {
         
         CFIndex page = IOHIDElementGetUsagePage(element);
         CFIndex usage = IOHIDElementGetUsage(element);
-        CFIndex value = ValueOfElement(element);
+        CFIndex value = ValueOfElement(device, element);
         
         if (value != kCFNotFound) {
             if (page == kHIDPage_GenericDesktop) {
@@ -385,52 +456,44 @@ void DispatchTouchDataForCollection(IOHIDElementRef collection) {
             } // kHIDPage_Digitizer
         }
     }
-    TouchInputManagerUpdateTouchPosition(gTouchManager, contactID, x, y, (int)tipSwitch, (int)isValid);
+    TouchInputManagerUpdateTouchPosition(gTouchManager, device->locationID, contactID, x, y, (int)tipSwitch, (int)isValid);
     
-//    if (width != kCFNotFound && height != kCFNotFound && azimuth != kCFNotFound) {
-//        TouchInputManagerUpdateTouchSize(gTouchManager, contactID, (CGFloat)width, (CGFloat)height, (CGFloat)azimuth);
-//    }
+    //    if (width != kCFNotFound && height != kCFNotFound && azimuth != kCFNotFound) {
+    //        TouchInputManagerUpdateTouchSize(gTouchManager, contactID, (CGFloat)width, (CGFloat)height, (CGFloat)azimuth);
+    //    }
     
 }
 
 
 
-void DispatchTouches(void) {
-
-    CFIndex numCollections = CFArrayGetCount(gTouchCollectionElements);
-    CFIndex remainingUpdates = gContactCount - gHybridOffset;
+void DispatchTouches(HIDDeviceState *device) {
+    
+    CFIndex numCollections = CFArrayGetCount(device->touchCollectionElements);
+    CFIndex remainingUpdates = device->contactCount - device->hybridOffset;
     
     CFIndex numUpdates = numCollections;
     if (remainingUpdates < numCollections) {
         numUpdates = remainingUpdates;
     }
     
-//    if(gTouchscreenUsesHybridMode && gHybridOffset > 0) {
-//        printf("Update NEXT %ld out of %ld touches beginning with %ld \n", numUpdates, gContactCount, gHybridOffset);
-//        
-//    } else {
-//        printf("Update %ld out of %ld touches beginning with %ld \n", numUpdates, gContactCount, gHybridOffset);
-//    }
-    
-    CFIndex numElementsToPost = CFArrayGetCount(gTouchCollectionElements);
+    CFIndex numElementsToPost = CFArrayGetCount(device->touchCollectionElements);
     if (numUpdates < numElementsToPost)
         numElementsToPost = numUpdates;
     
     // update the touch data
     for (CFIndex i=0; i<numElementsToPost; i++) {
-        IOHIDElementRef collection = (IOHIDElementRef)CFArrayGetValueAtIndex(gTouchCollectionElements, i);
-        DispatchTouchDataForCollection(collection);
-//        PrintTouchCollection(collection);
+        IOHIDElementRef collection = (IOHIDElementRef)CFArrayGetValueAtIndex(device->touchCollectionElements, i);
+        DispatchTouchDataForCollection(device, collection);
     }
     
-    gHybridOffset = gHybridOffset + numUpdates;
+    device->hybridOffset = device->hybridOffset + numUpdates;
     
-    if (gHybridOffset == gContactCount) {
-        gHybridOffset = 0;
+    if (device->hybridOffset == device->contactCount) {
+        device->hybridOffset = 0;
     }
-
-    if (gHybridOffset == 0) {
-        TouchInputManagerDidProcessReport(gTouchManager);
+    
+    if (device->hybridOffset == 0) {
+        TouchInputManagerDidProcessReport(gTouchManager, device->locationID);
     }
     
 }
@@ -443,26 +506,29 @@ void DispatchTouches(void) {
 #pragma mark - Callbacks
 
 /*!
-    @param context void * pointer to your data, often a pointer to an object.
-    @param result Completion result of desired operation.
-    @param inSender Interface instance sending the completion routine.
-*/
+ @param context void * pointer to your data, often a pointer to an object.
+ @param result Completion result of desired operation.
+ @param inSender Interface instance sending the completion routine.
+ */
 
 static void Handle_QueueValueAvailable(
-            void * _Nullable        context,
-            IOReturn                result,
-            void * _Nullable        inSender
+    void * _Nullable        context,
+    IOReturn                result,
+    void * _Nullable        inSender
 ) {
+    uint32_t locationID = (uint32_t)(uintptr_t)context;
+    HIDDeviceState *device = DeviceStateForLocationID(locationID);
+    if (!device) return;
     
     do {
         IOHIDValueRef valueRef = IOHIDQueueCopyNextValueWithTimeout((IOHIDQueueRef) inSender, 0.);
         if (!valueRef)  {
             // finished processing 1 report
-            DispatchTouches();
+            DispatchTouches(device);
             break;
         }
         // process the HID value reference
-        StoreInputValue(valueRef);
+        StoreInputValue(device, valueRef);
         
         // Don't forget to release our HID value reference
         CFRelease(valueRef);
@@ -471,23 +537,27 @@ static void Handle_QueueValueAvailable(
 
 
 static void Handle_InputValueCallback (
-                void *          inContext,      // context from IOHIDManagerRegisterInputValueCallback
-                IOReturn        inResult,       // completion result for the input value operation
-                void *          inSender,       // the IOHIDManagerRef
-                IOHIDValueRef   inIOHIDValueRef // the new element value
+    void *          inContext,      // context from IOHIDManagerRegisterInputValueCallback
+    IOReturn        inResult,       // completion result for the input value operation
+    void *          inSender,       // the IOHIDManagerRef
+    IOHIDValueRef   inIOHIDValueRef // the new element value
 ) {
-    if(!gAreElementRefsSet) {
+    uint32_t locationID = (uint32_t)(uintptr_t)inContext;
+    HIDDeviceState *device = DeviceStateForLocationID(locationID);
+    if (!device) return;
+    
+    if(!device->areElementRefsSet) {
         IOHIDElementRef e = IOHIDValueGetElement(inIOHIDValueRef);
-        IdentifyElements(e, TRUE);
-        gAreElementRefsSet = 1;
+        IdentifyElements(device, e, TRUE);
+        device->areElementRefsSet = TRUE;
     }
     
     IOHIDElementRef elem = IOHIDValueGetElement(inIOHIDValueRef);
     
-    Boolean added = IOHIDQueueContainsElement(gQueue, elem);
+    Boolean added = IOHIDQueueContainsElement(device->queue, elem);
     if(!added) {
-        IOHIDQueueAddElement(gQueue, elem);
-        StoreInputValue(inIOHIDValueRef);
+        IOHIDQueueAddElement(device->queue, elem);
+        StoreInputValue(device, inIOHIDValueRef);
     }
     
 }
@@ -501,16 +571,27 @@ static void Handle_InputValueCallback (
 
 // this will be called when the HID Manager matches a new (hot plugged) HID device
 static void Handle_DeviceMatchingCallback(
-            void *          inContext,       // context from IOHIDManagerRegisterDeviceMatchingCallback
-            IOReturn        inResult,        // the result of the matching operation
-            void *          inSender,        // the IOHIDManagerRef for the new device
-            IOHIDDeviceRef  inIOHIDDeviceRef // the new HID device
+    void *          inContext,       // context from IOHIDManagerRegisterDeviceMatchingCallback
+    IOReturn        inResult,        // the result of the matching operation
+    void *          inSender,        // the IOHIDManagerRef for the new device
+    IOHIDDeviceRef  inIOHIDDeviceRef // the new HID device
 ) {
     printf("%s(context: %p, result: %p, sender: %p, device: %p).\n",
-        __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
-   
-    gAreElementRefsSet = 0;
+           __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
     
+    // read the location ID for this device
+    CFNumberRef locationRef = IOHIDDeviceGetProperty(inIOHIDDeviceRef, CFSTR(kIOHIDLocationIDKey));
+    uint32_t locationID = 0;
+    if (locationRef) {
+        CFNumberGetValue(locationRef, kCFNumberSInt32Type, &locationID);
+    }
+    
+    printf("Touchscreen connected with locationID: 0x%08x\n", locationID);
+    
+    HIDDeviceState *device = AllocateDeviceState(locationID);
+    if (!device) return;
+    
+    void *locationContext = (void *)(uintptr_t)locationID;
     
     IOHIDQueueRef queue = IOHIDQueueCreate(kCFAllocatorDefault, inIOHIDDeviceRef, 1000, kNilOptions);
     
@@ -518,36 +599,42 @@ static void Handle_DeviceMatchingCallback(
         // this is not a valid HID queue reference!
     }
     
-    IOHIDQueueRegisterValueAvailableCallback(queue, Handle_QueueValueAvailable, NULL);
+    IOHIDQueueRegisterValueAvailableCallback(queue, Handle_QueueValueAvailable, locationContext);
     IOHIDQueueStart(queue);
-    gQueue = queue;
+    device->queue = queue;
     
     IOHIDQueueScheduleWithRunLoop(queue, gRunLoopRef, kCFRunLoopCommonModes);
     
-    TouchInputManagerDidConnectTouchscreen(gTouchManager);
+    // register per-device input value callback
+    IOHIDDeviceRegisterInputValueCallback(inIOHIDDeviceRef, Handle_InputValueCallback, locationContext);
+    
+    TouchInputManagerDidConnectTouchscreen(gTouchManager, locationID);
     
 }   // Handle_DeviceMatchingCallback
- 
+
 
 
 // this will be called when a HID device is removed (unplugged)
 static void Handle_RemovalCallback(
-                void *         inContext,       // context from IOHIDManagerRegisterDeviceMatchingCallback
-                IOReturn       inResult,        // the result of the removing operation
-                void *         inSender,        // the IOHIDManagerRef for the device being removed
-                IOHIDDeviceRef inIOHIDDeviceRef // the removed HID device
+                                   void *         inContext,       // context from IOHIDManagerRegisterDeviceMatchingCallback
+                                   IOReturn       inResult,        // the result of the removing operation
+                                   void *         inSender,        // the IOHIDManagerRef for the device being removed
+                                   IOHIDDeviceRef inIOHIDDeviceRef // the removed HID device
 ) {
     printf("%s(context: %p, result: %p, sender: %p, device: %p).\n",
-        __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
-    IOHIDQueueStop(gQueue);
-    CFRelease(gQueue);
-    gQueue = NULL;
+           __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
     
-    CFArrayRemoveAllValues(gTouchCollectionElements);
-    CFArrayRemoveAllValues(gContactIdentifiers);
-    CFDictionaryRemoveAllValues(gStoredInputValues);
+    CFNumberRef locationRef = IOHIDDeviceGetProperty(inIOHIDDeviceRef, CFSTR(kIOHIDLocationIDKey));
+    uint32_t locationID = 0;
+    if (locationRef) {
+        CFNumberGetValue(locationRef, kCFNumberSInt32Type, &locationID);
+    }
     
-    TouchInputManagerDidDisconnectTouchscreen(gTouchManager);
+    printf("Touchscreen disconnected with locationID: 0x%08x\n", locationID);
+    
+    DeallocateDeviceState(locationID);
+    
+    TouchInputManagerDidDisconnectTouchscreen(gTouchManager, locationID);
 }   // Handle_RemovalCallback
 
 
@@ -559,24 +646,24 @@ static void Handle_RemovalCallback(
 static CFMutableDictionaryRef CreateDeviceMatchingDictionary(UInt32 inUsagePage, UInt32 inUsage) {
     // create a dictionary to add usage page/usages to
     CFMutableDictionaryRef result = CFDictionaryCreateMutable(
-        kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+                                                              kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     if (result) {
         if (inUsagePage) {
             // Add key for device type to refine the matching dictionary.
             CFNumberRef pageCFNumberRef = CFNumberCreate(
-                            kCFAllocatorDefault, kCFNumberIntType, &inUsagePage);
+                                                         kCFAllocatorDefault, kCFNumberIntType, &inUsagePage);
             if (pageCFNumberRef) {
                 CFDictionarySetValue(result,
-                        CFSTR(kIOHIDDeviceUsagePageKey), pageCFNumberRef);
+                                     CFSTR(kIOHIDDeviceUsagePageKey), pageCFNumberRef);
                 CFRelease(pageCFNumberRef);
- 
+                
                 // note: the usage is only valid if the usage page is also defined
                 if (inUsage) {
                     CFNumberRef usageCFNumberRef = CFNumberCreate(
-                                    kCFAllocatorDefault, kCFNumberIntType, &inUsage);
+                                                                  kCFAllocatorDefault, kCFNumberIntType, &inUsage);
                     if (usageCFNumberRef) {
                         CFDictionarySetValue(result,
-                            CFSTR(kIOHIDDeviceUsageKey), usageCFNumberRef);
+                                             CFSTR(kIOHIDDeviceUsageKey), usageCFNumberRef);
                         CFRelease(usageCFNumberRef);
                     } else {
                         fprintf(stderr, "%s: CFNumberCreate(usage) failed.", __PRETTY_FUNCTION__);
@@ -591,7 +678,7 @@ static CFMutableDictionaryRef CreateDeviceMatchingDictionary(UInt32 inUsagePage,
     }
     return result;
 }   // CreateDeviceMatchingDictionary
- 
+
 
 
 
@@ -605,46 +692,46 @@ void OpenHIDManager(void *delegate) {
     if (CFGetTypeID(gHidManager) != IOHIDManagerGetTypeID()) {
         printf("OH CRAP THIS IS NOT AN HID MANAGER");
     }
-        
     
-    gTouchCollectionElements = CFArrayCreateMutable(kCFAllocatorDefault, 0, NULL);
-    gContactIdentifiers      = CFArrayCreateMutable(kCFAllocatorDefault, 0, NULL);
-    gStoredInputValues       = CFDictionaryCreateMutable(kCFAllocatorDefault,0, NULL, NULL);
-   
-//    CFMutableDictionaryRef keyboard =
-//    CreateDeviceMatchingDictionary(kHIDPage_Digitizer, kHIDUsage_Dig_Pen);
-//    CFMutableDictionaryRef keypad =
-//    CreateDeviceMatchingDictionary(kHIDPage_Digitizer, kHIDUsage_Dig_Touch);
-
+    
+    //    CFMutableDictionaryRef keyboard =
+    //    CreateDeviceMatchingDictionary(kHIDPage_Digitizer, kHIDUsage_Dig_Pen);
+    //    CFMutableDictionaryRef keypad =
+    //    CreateDeviceMatchingDictionary(kHIDPage_Digitizer, kHIDUsage_Dig_Touch);
+    
     CFMutableDictionaryRef matchesList[] = {
         CreateDeviceMatchingDictionary(kHIDPage_Digitizer, kHIDUsage_Dig_TouchScreen),
     };
     
-
+    
     
     CFArrayRef matches = CFArrayCreate(kCFAllocatorDefault,
-            (const void **)matchesList, 1, NULL);
+                                       (const void **)matchesList, 1, NULL);
     IOHIDManagerSetDeviceMatchingMultiple(gHidManager, matches);
     CFRelease(matches);
     
     IOHIDManagerRegisterDeviceMatchingCallback(gHidManager, Handle_DeviceMatchingCallback, NULL);
     IOHIDManagerRegisterDeviceRemovalCallback(gHidManager, Handle_RemovalCallback, NULL);
     
-//    IOHIDManagerRegisterInputReportWithTimeStampCallback(gHidManager, Handle_ReportCallback, NULL);
-    IOHIDManagerRegisterInputValueCallback(gHidManager, Handle_InputValueCallback, NULL);
+    //    IOHIDManagerRegisterInputReportWithTimeStampCallback(gHidManager, Handle_ReportCallback, NULL);
     
     
     gRunLoopRef = CFRunLoopGetMain();
     
     IOHIDManagerScheduleWithRunLoop(gHidManager, gRunLoopRef,
                                     kCFRunLoopCommonModes);
-
+    
     IOHIDManagerOpen(gHidManager, kIOHIDOptionsTypeNone);
 }
 
 
 
 void CloseHIDManager(void) {
+    // clean up all active device states
+    while (gDeviceCount > 0) {
+        DeallocateDeviceState(gDevices[0].locationID);
+    }
+    
     IOHIDManagerUnscheduleFromRunLoop(gHidManager, gRunLoopRef, kCFRunLoopCommonModes);
     IOHIDManagerClose(gHidManager, kIOHIDOptionsTypeNone);
 }

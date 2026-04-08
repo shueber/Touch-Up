@@ -65,7 +65,7 @@ class TouchUp: NSObject, ObservableObject {
     }
     
     func rememeberCues() {
-        if let connectedTouchscreen = self.touchscreen() {
+        if let connectedTouchscreen = self.connectedTouchscreen {
             UserDefaults.standard.set(connectedTouchscreen.name, forKey: "touchscreenNameCue")
             UserDefaults.standard.set(connectedTouchscreen.id,   forKey: "touchscreenIDCue")
         }
@@ -87,7 +87,7 @@ class TouchUp: NSObject, ObservableObject {
             return true
         }
         
-       
+        
         
         if let perfectMatch = connectedScreens.first(where: { $0.matching(name: cues.name, id: cues.id) == 1}) {
             self.connectedTouchscreen = perfectMatch
@@ -178,7 +178,7 @@ class TouchUp: NSObject, ObservableObject {
         self.touchManager.delegate = self
         
         NotificationCenter.default.addObserver(self, selector: #selector(TouchUp.screenParametersDidChange), name: NSApplication.didChangeScreenParametersNotification, object: nil)
-
+        
         initPreferences()
         
         checkAccessibilityAccessGranted()
@@ -264,10 +264,10 @@ extension TouchUp: TUCTouchDelegate {
     }
     
     
-    func touchscreen() -> TUCScreen? {
+    func touchscreen(forLocationID locationID: UInt32) -> TUCScreen? {
         self.connectedTouchscreen ?? self.connectedScreens.last
     }
-
+    
     
     func action(for gesture: TUCCursorGesture) -> TUCCursorAction {
         switch gesture {
@@ -302,7 +302,7 @@ extension TouchUp: TUCTouchDelegate {
     
     
     
-    func touchscreenDidConnect() {
+    func touchscreenDidConnect(withLocationID locationID: UInt32) {
         self.lastDateScreenAdded = Date()
         
         if !self.identifyHotPlug() {
@@ -314,7 +314,7 @@ extension TouchUp: TUCTouchDelegate {
         self.identifyPreferredOrNoScreen()
     }
     
-    func touchscreenDidDisconnect() {
+    func touchscreenDidDisconnect(withLocationID locationID: UInt32) {
         self.connectionState = .disconnected
     }
     
@@ -399,7 +399,7 @@ enum ConnectionState: Int {
         default:
             image = NSImage(systemSymbolName: "hand.point.up.left", accessibilityDescription: nil)
         }
-
+        
         image?.isTemplate = true
         
         return image
@@ -409,8 +409,8 @@ enum ConnectionState: Int {
         return self == .connectedPreferred || self == .connectedHotPlug
     }
 }
-                 
-                 
+
+
 extension TUCScreen: @retroactive Identifiable {
     func matching(name:String, id:UInt) -> Float {
         let sameName = self.name == name

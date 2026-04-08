@@ -19,7 +19,7 @@ struct DebugView: View {
     
     init(model: TouchUp, closeAction: @escaping ()->Void) {
         self.model = model
-        self.pixelsPerMM = model.touchscreen()?.pixelsPerMM() ?? 30
+        self.pixelsPerMM = model.touchscreen(forLocationID: 0)?.pixelsPerMM() ?? 30
         self.closeAction = closeAction
     }
     
@@ -33,7 +33,7 @@ struct DebugView: View {
             
         case .ended:
             return Color.red
-    
+            
         case .cancelled:
             return Color.orange
             
@@ -60,7 +60,7 @@ struct DebugView: View {
                                 .frame(width: 16 * pixelsPerMM, height: 16 * pixelsPerMM)
                                 .position(x: geo.size.width * point.location.x,
                                           y: geo.size.height * point.location.y)
-                                
+                            
                             
                             Text("\(point.contactID)")
                                 .font(.system(size: 40))
@@ -95,7 +95,7 @@ struct DebugView: View {
             .padding(.bottom, 140)
         }
         
-            
+        
     }
 }
 

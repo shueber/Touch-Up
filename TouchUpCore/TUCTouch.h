@@ -41,6 +41,7 @@ typedef NS_ENUM(NSUInteger, TUCCursorAction) {
 
 @property (strong) NSUUID *uuid;
 @property NSInteger contactID;
+@property uint32_t locationID;
 
 @property BOOL isOnSurface; //tip
 @property BOOL confidenceFlag;
@@ -57,7 +58,7 @@ typedef NS_ENUM(NSUInteger, TUCCursorAction) {
 @property NSInteger lastUpdated; // the page ID during last update
 
 
-- (instancetype)initWithContactID:(NSInteger)contactID ;
+- (instancetype)initWithContactID:(NSInteger)contactID locationID:(uint32_t)locationID;
 
 
 

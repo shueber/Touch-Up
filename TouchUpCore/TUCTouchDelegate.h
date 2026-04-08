@@ -25,17 +25,17 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - Lifecycle
 
-- (void)touchscreenDidConnect;
-- (void)touchscreenDidDisconnect;
+- (void)touchscreenDidConnectWithLocationID:(uint32_t)locationID;
+- (void)touchscreenDidDisconnectWithLocationID:(uint32_t)locationID;
 
 
 
 #pragma mark - Mouse Control
 
 /**
- Specifies which screen corresponds to the touch screen.
+ Specifies which screen corresponds to the touch screen with the given location ID.
  */
-- (nullable TUCScreen *)touchscreen;
+- (nullable TUCScreen *)touchscreenForLocationID:(uint32_t)locationID;
 
 /**
  Used to customize which mouse events are posted by the input manager.
