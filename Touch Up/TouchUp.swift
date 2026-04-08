@@ -203,6 +203,7 @@ extension TouchUp {
             "doubleClickDistance" : 8,
             "errorResistance" : 4,
             "ignoreOriginTouches" : true,
+            "additionalDigitizerRotation": 0,
             
             "isScrollingWithOneFingerEnabled" : true,
             "isSecondaryClickEnabled" : true,
@@ -215,6 +216,7 @@ extension TouchUp {
         doubleClickDistance = defaults.double(forKey: "doubleClickDistance")
         errorResistance = defaults.integer(forKey: "errorResistance")
         ignoreOriginTouches = defaults.bool(forKey: "ignoreOriginTouches")
+        additionalDigitizerRotation = defaults.double(forKey: "additionalDigitizerRotation")
         
         
         self.observers = [
@@ -242,6 +244,7 @@ extension TouchUp {
         defaults.set(doubleClickDistance, forKey: "doubleClickDistance")
         defaults.set(errorResistance, forKey: "$errorResistance")
         defaults.set(ignoreOriginTouches, forKey: "ignoreOriginTouches")
+        defaults.set(additionalDigitizerRotation, forKey: "additionalDigitizerRotation")
         
         defaults.set(isScrollingWithOneFingerEnabled, forKey: "isScrollingWithOneFingerEnabled")
         defaults.set(isSecondaryClickEnabled, forKey: "isSecondaryClickEnabled")
