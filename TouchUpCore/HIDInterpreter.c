@@ -138,6 +138,7 @@ CFIndex ValueOfElement(IOHIDElementRef element) {
         return value;
         
     }
+    CFRelease(key);
     return kCFNotFound;
 
 }
