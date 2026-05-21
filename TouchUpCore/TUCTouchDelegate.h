@@ -42,7 +42,7 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (TUCCursorAction)actionForGesture:(TUCCursorGesture)gesture;
 
-- (CGFloat)digitizerRotation;
+- (CGFloat)digitizerRotationForLocationID:(uint32_t)locationID;
 
 @end
 

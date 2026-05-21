@@ -12,7 +12,7 @@
 
 @interface TUCTouchInputManager ()
 
-@property NSInteger currentFrameID;
+@property NSMutableDictionary<NSNumber *, NSNumber *> *frameIDsByLocationID;
 
 @property (weak, nullable) TUCTouch *cursorTouch;
 @property (weak, nullable) TUCTouch *gestureAdditionalTouch;
@@ -50,10 +50,12 @@
 
 
 - (void)didConnectTouchscreenWithLocationID:(uint32_t)locationID {
+    self.frameIDsByLocationID[@(locationID)] = @0;
     [self.delegate touchscreenDidConnectWithLocationID:locationID];
 }
 
 - (void)didDisconnectTouchscreenWithLocationID:(uint32_t)locationID {
+    [self.frameIDsByLocationID removeObjectForKey:@(locationID)];
     [self.delegate touchscreenDidDisconnectWithLocationID:locationID];
 }
 
@@ -61,26 +63,31 @@
 
 #pragma mark - Reacting to HID Events
 
+- (NSInteger)currentFrameIDForLocationID:(uint32_t)locationID {
+    return self.frameIDsByLocationID[@(locationID)].integerValue;
+}
+
 - (void)didProcessReportForLocationID:(uint32_t)locationID {
     // go through all touches: if the frame is not the latest one, the touch might be old and should be removed.
-    
+    NSInteger currentFrameID = [self currentFrameIDForLocationID:locationID];
+
     for (TUCTouch *touch in self.touchSet) {
         if (touch.locationID != locationID) continue;
-        
-        if (touch.lastUpdated + self.errorResistance < self.currentFrameID) {
+
+        if (touch.lastUpdated + self.errorResistance < currentFrameID) {
             [touch setPhase:NSTouchPhaseCancelled];
             [self removeTouch:touch now:NO];
         }
     }
-    
+
     if ([[self activeTouches] count] == 0) {
         [self stopCurrentGesture];
     }
-    
-    ++self.currentFrameID;
-    
+
+    self.frameIDsByLocationID[@(locationID)] = @(currentFrameID + 1);
+
     [self processTouchesForCursorInput];
-    
+
 }
 
 
@@ -118,7 +125,7 @@
     [touch setLocation: point];
     [touch setIsOnSurface:isOnSurface];
     [touch setConfidenceFlag:confidenceFlag];
-    [touch setLastUpdated:self.currentFrameID];
+    [touch setLastUpdated:[self currentFrameIDForLocationID:locationID]];
     
     if (!isOnSurface) {
         [touch setPhase: NSTouchPhaseEnded];
@@ -159,7 +166,7 @@
 - (void)updateTouch:(NSInteger)contactID locationID:(uint32_t)locationID withSize:(CGSize)size azimuth:(CGFloat)azimuth {
     BOOL isNewTouch = NO;
     TUCTouch *touch = [self obtainTouchWithID:contactID locationID:locationID isNew:&isNewTouch];
-    [touch setLastUpdated:self.currentFrameID];
+    [touch setLastUpdated:[self currentFrameIDForLocationID:locationID]];
     
     [touch setSize:size];
     [touch setAzimuth:azimuth];
@@ -452,10 +459,11 @@
                                    screenDistance / screen.frame.size.height);
     
     NSPredicate * predicate = [NSPredicate predicateWithBlock: ^BOOL(TUCTouch *t, NSDictionary *bind) {
-        
+        if (t.locationID != locationID) return NO;
+
         CGFloat dx = [t location].x - point.x;
         CGFloat dy = [t location].y - point.y;
-        
+
         return sqrt( pow(dx, 2) + pow(dy, 2) ) < distance.x;
     }];
     
@@ -530,7 +538,7 @@
 - (CGPoint)convertDigitizerPointToRelativeScreenPoint:(CGPoint)devicePoint locationID:(uint32_t)locationID {
     CGFloat rotation = [self touchscreenForLocationID:locationID].rotation;
     
-    CGFloat extra = [[self delegate] digitizerRotation];
+    CGFloat extra = [[self delegate] digitizerRotationForLocationID:locationID];
     
     rotation += extra;
     rotation = fmod(rotation, 360);
@@ -661,7 +669,7 @@
         self.cursorTouchQualifiedForTap = NO;
         self.cursorTouchStationarySinceDate = nil;
         
-        self.currentFrameID = 0;
+        self.frameIDsByLocationID = [NSMutableDictionary new];
         self.identifiedMultitouchGesture = _TUCCursorGestureNone;
         
         self.doubleClickTolerance = 5;

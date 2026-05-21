@@ -318,7 +318,7 @@ extension TouchUp: TUCTouchDelegate {
         self.connectionState = .disconnected
     }
     
-    func digitizerRotation() -> CGFloat {
+    func digitizerRotation(forLocationID locationID: UInt32) -> CGFloat {
         return self.additionalDigitizerRotation
     }
 }
