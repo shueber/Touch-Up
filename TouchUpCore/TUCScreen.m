@@ -77,7 +77,7 @@
     return [NSString stringWithFormat:@"<[TUFScreen ID %ld] Frame: %@, Name: %@>", self.id, NSStringFromRect(self.frame), self.name];
 }
 
-+ (NSArray *)allScreens {
++ (NSArray<TUCScreen *> *)allScreens {
     NSMutableArray<TUCScreen *> *myScreens = [NSMutableArray array];
     
     NSArray *nsScreens = [NSScreen screens];

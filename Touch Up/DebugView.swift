@@ -13,12 +13,15 @@ struct DebugView: View {
     
     @ObservedObject var model: TouchUp
     
+    let locationID: HIDLocationID?
+    
     let closeAction: ()->Void
     
     var pixelsPerMM: CGFloat
     
-    init(model: TouchUp, closeAction: @escaping ()->Void) {
+    init(model: TouchUp, locationID: HIDLocationID?, closeAction: @escaping ()->Void) {
         self.model = model
+        self.locationID = locationID
         self.pixelsPerMM = model.touchscreen(forLocationID: 0)?.pixelsPerMM() ?? 30
         self.closeAction = closeAction
     }
@@ -42,6 +45,14 @@ struct DebugView: View {
         }
     }
     
+    var allTouches: [TUCTouch] {
+        if let locationID = locationID {
+            return model.touches.filter {$0.locationID == locationID}
+        } else {
+            return model.touches
+        }
+    }
+    
     var body: some View {
         ZStack(alignment: .bottom) {
             
@@ -50,9 +61,7 @@ struct DebugView: View {
                 .frame(maxWidth:.infinity, maxHeight: .infinity)
                 .overlay(GeometryReader { geo in
                     ZStack(alignment: .bottom) {
-                        
-                        
-                        ForEach(model.touches, id:\.uuid) { point in
+                        ForEach(allTouches, id:\.uuid) { point in
                             Circle()
                                 .foregroundColor(colorForPhase(point.phase))
                                 .border(Color.gray, width: point.confidenceFlag ? 5: 0)
@@ -68,8 +77,6 @@ struct DebugView: View {
                                           y: geo.size.height * point.location.y)
                             
                         }
-                        
-                        
                     }
                 })
             
@@ -101,7 +108,7 @@ struct DebugView: View {
 
 struct DebugView_Previews: PreviewProvider {
     static var previews: some View {
-        DebugView(model: TouchUp(), closeAction: {})
+        DebugView(model: TouchUp(), locationID: nil, closeAction: {})
     }
 }
 
