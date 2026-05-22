@@ -15,6 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface TUCScreen : NSObject
 
 @property NSUInteger id;
+@property (strong) NSString *uuid;
 @property (strong) NSString *name;
 @property CGFloat rotation;
 @property CGSize physicalSize;

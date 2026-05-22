@@ -16,6 +16,10 @@
         
         self.id = displayID;
         
+        CFUUIDRef cfUUID = CGDisplayCreateUUIDFromDisplayID(displayID);
+        self.uuid = (__bridge_transfer NSString * _Nonnull)(CFUUIDCreateString(kCFAllocatorDefault, cfUUID));
+        CFRelease(cfUUID);
+
         self.rotation = CGDisplayRotation(displayID);
         
         
@@ -74,7 +78,7 @@
 
 
 - (NSString *)debugDescription {
-    return [NSString stringWithFormat:@"<[TUFScreen ID %ld] Frame: %@, Name: %@>", self.id, NSStringFromRect(self.frame), self.name];
+    return [NSString stringWithFormat:@"<[TUFScreen ID %ld] Frame: %@, Name: %@, UUID: %@>", self.id, NSStringFromRect(self.frame), self.name, self.uuid];
 }
 
 + (NSArray<TUCScreen *> *)allScreens {
