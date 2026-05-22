@@ -41,6 +41,8 @@ class TouchUp: NSObject, ObservableObject {
     
     
     @Published var connectedScreens = [TUCScreen]()
+    @Published var connectedDigitizers = [Digitizer]()
+    
     var connectedTouchscreen: TUCScreen?
     
     var lastDateUSBAdded: Date?
@@ -268,6 +270,9 @@ extension TouchUp: TUCTouchDelegate {
         self.connectedTouchscreen ?? self.connectedScreens.last
     }
     
+    func digitizerRotation(forLocationID locationID: UInt32) -> CGFloat {
+        return self.additionalDigitizerRotation
+    }
     
     func action(for gesture: TUCCursorGesture) -> TUCCursorAction {
         switch gesture {
@@ -303,6 +308,7 @@ extension TouchUp: TUCTouchDelegate {
     
     
     func touchscreenDidConnect(withLocationID locationID: UInt32) {
+        self.connectedDigitizers.append(Digitizer(locationID: locationID))
         self.lastDateScreenAdded = Date()
         
         if !self.identifyHotPlug() {
@@ -315,12 +321,15 @@ extension TouchUp: TUCTouchDelegate {
     }
     
     func touchscreenDidDisconnect(withLocationID locationID: UInt32) {
-        self.connectionState = .disconnected
+        if let index = self.connectedDigitizers.firstIndex(where: {$0.locationID == locationID}) {
+            self.connectedDigitizers.remove(at: index)
+        }
+        
+        if self.connectedDigitizers.count == 0 {
+            self.connectionState = .disconnected
+        }
     }
     
-    func digitizerRotation(forLocationID locationID: UInt32) -> CGFloat {
-        return self.additionalDigitizerRotation
-    }
 }
 
 
