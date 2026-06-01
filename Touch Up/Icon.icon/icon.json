@@ -1,8 +1,8 @@
 {
   "fill" : {
     "linear-gradient" : [
-      "srgb:0.00000,0.32941,0.62353,1.00000",
-      "srgb:0.00000,0.59608,0.63137,1.00000"
+      "srgb:0.09844,0.43086,0.50549,1.00000",
+      "display-p3:0.03922,0.12939,0.20398,1.00000"
     ],
     "orientation" : {
       "start" : {
@@ -17,141 +17,148 @@
   },
   "groups" : [
     {
-      "blur-material" : 0.2,
+      "blur-material" : 0.14,
       "layers" : [
         {
           "fill-specializations" : [
             {
               "value" : {
-                "solid" : "srgb:1.00000,1.00000,1.00000,1.00000"
+                "solid" : "gray:1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "srgb:0.34109,0.45171,0.55520,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Image 2.png",
+          "name" : "Image 2",
+          "opacity" : 0.5,
+          "position" : {
+            "scale" : 0.42,
+            "translation-in-points" : [
+              220.08000000000004,
+              221.14960163919864
+            ]
+          }
+        }
+      ],
+      "name" : "hand",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.6
+      }
+    },
+    {
+      "blend-mode" : "normal",
+      "blur-material" : null,
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "linear-gradient" : [
+                  "display-p3:1.00000,1.00000,1.00000,1.00000",
+                  "display-p3:0.98828,0.93466,0.75955,1.00000"
+                ],
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.5,
+                    "y" : 0.231952079017894
+                  },
+                  "stop" : {
+                    "x" : 0.5,
+                    "y" : 1
+                  }
+                }
               }
             },
             {
               "appearance" : "dark",
               "value" : {
                 "linear-gradient" : [
-                  "srgb:0.55686,0.72941,0.89804,1.00000",
-                  "srgb:0.99889,0.99889,0.99889,1.00000"
+                  "display-p3:1.00000,1.00000,1.00000,1.00000",
+                  "display-p3:0.98828,0.93466,0.75955,1.00000"
                 ],
                 "orientation" : {
                   "start" : {
                     "x" : 0.5,
-                    "y" : 1
+                    "y" : 0.231952079017894
                   },
                   "stop" : {
                     "x" : 0.5,
-                    "y" : 0.3
+                    "y" : 1
                   }
                 }
               }
             }
           ],
-          "image-name" : "hand.svg",
-          "name" : "hand",
+          "image-name" : "touch-icon.svg",
+          "name" : "touch-icon",
           "position" : {
-            "scale" : 1.8,
+            "scale" : 1.09,
             "translation-in-points" : [
-              204.07329463598774,
-              156.53743744451754
-            ]
-          }
-        }
-      ],
-      "shadow" : {
-        "kind" : "layer-color",
-        "opacity" : 0.5
-      },
-      "specular" : false,
-      "translucency-specializations" : [
-        {
-          "value" : {
-            "enabled" : true,
-            "value" : 0.5
-          }
-        },
-        {
-          "appearance" : "tinted",
-          "value" : {
-            "enabled" : true,
-            "value" : 0.3
-          }
-        }
-      ]
-    },
-    {
-      "blur-material" : null,
-      "layers" : [
-        {
-          "blend-mode" : "normal",
-          "glass" : false,
-          "hidden" : false,
-          "image-name" : "sheep-emoji.svg",
-          "name" : "sheep-emoji",
-          "position" : {
-            "scale" : 1,
-            "translation-in-points" : [
-              -72.81529918471735,
-              -45.35933654492797
+              0.2885507075575333,
+              0.45573745311583025
             ]
           }
         }
       ],
       "lighting" : "combined",
-      "opacity" : 1,
-      "position" : {
-        "scale" : 3,
-        "translation-in-points" : [
-          0,
-          0
-        ]
-      },
+      "name" : "sheep",
       "shadow" : {
         "kind" : "neutral",
-        "opacity" : 0.5
+        "opacity" : 1
       },
       "specular" : false,
       "translucency" : {
-        "enabled" : false,
-        "value" : 0.5
+        "enabled" : true,
+        "value" : 0.2
       }
     },
     {
-      "blur-material" : 0.9,
+      "blend-mode" : "normal",
+      "hidden" : false,
       "layers" : [
         {
-          "fill" : {
-            "linear-gradient" : [
-              "srgb:0.47563,0.47565,0.47564,1.00000",
-              "srgb:0.83742,0.83744,0.83743,1.00000"
-            ],
-            "orientation" : {
-              "start" : {
-                "x" : 0.5,
-                "y" : 0
-              },
-              "stop" : {
-                "x" : 0.5,
-                "y" : 0.7
-              }
-            }
-          },
-          "glass" : true,
-          "image-name" : "markierung.png",
-          "name" : "drawn-line",
+          "hidden" : false,
+          "image-name" : "background.png",
+          "name" : "background",
           "position" : {
-            "scale" : 0.26,
+            "scale" : 0.85,
             "translation-in-points" : [
-              -214.5437569913504,
-              6.179479912725583
+              15,
+              0
             ]
           }
+        }
+      ],
+      "name" : "background",
+      "opacity-specializations" : [
+        {
+          "value" : 0.9
+        },
+        {
+          "appearance" : "dark",
+          "value" : 0
+        },
+        {
+          "appearance" : "tinted",
+          "value" : 0
         }
       ],
       "shadow" : {
         "kind" : "neutral",
         "opacity" : 0.5
       },
-      "specular" : false,
       "translucency" : {
         "enabled" : true,
         "value" : 0.9
