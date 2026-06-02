@@ -6,9 +6,11 @@
 //
 
 #import "TUCScreen.h"
+#import <dlfcn.h>
 
 @interface TUCScreen ()
 + (nullable NSScreen *)systemScreenForDisplayID:(CGDirectDisplayID)displayID;
+- (nullable NSString *)edidNameForDisplayID:(CGDirectDisplayID)displayID;
 @end
 
 @implementation TUCScreen
@@ -38,10 +40,15 @@
         // Like the physical size, mode dimensions swap with rotation.
         self.nativeResolution = [self largestModePixelSizeForDisplayID:displayID];
 
-        // The name belongs to this exact panel, so only read it from its own NSScreen.
+        // The name belongs to this exact panel. Prefer its own NSScreen's localized name,
+        // but a hardware-mirrored secondary has no NSScreen — fall back to its EDID product
+        // name (read by display ID, independent of mirroring), then to a generic label.
         NSScreen *ownScreen = [TUCScreen systemScreenForDisplayID:displayID];
         if (@available(macOS 10.15, *)) {
             self.name = ownScreen.localizedName;
+        }
+        if (self.name == nil) {
+            self.name = [self edidNameForDisplayID:displayID];
         }
         if (self.name == nil) {
             self.name = [NSString stringWithFormat:@"Display %u", displayID];
@@ -90,6 +97,37 @@
     }
 
     return largest;
+}
+
+- (nullable NSString *)edidNameForDisplayID:(CGDirectDisplayID)displayID {
+    // `CoreDisplay_DisplayCreateInfoDictionary` is a private symbol that returns the
+    // panel's EDID info keyed by display ID, so it works even for a mirrored secondary
+    // that has no NSScreen. We resolve it via dlsym (rather than linking the private
+    // CoreDisplay framework) and degrade gracefully if it is absent or sandbox-blocked.
+    typedef CFDictionaryRef (*InfoDictFunc)(CGDirectDisplayID);
+    static InfoDictFunc createInfo;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        createInfo = (InfoDictFunc)dlsym(RTLD_DEFAULT, "CoreDisplay_DisplayCreateInfoDictionary");
+    });
+    if (createInfo == NULL) {
+        return nil;
+    }
+
+    NSDictionary *info = (__bridge_transfer NSDictionary *)createInfo(displayID);
+    id productNames = info[@"DisplayProductName"];
+
+    if ([productNames isKindOfClass:[NSString class]]) {
+        return productNames;
+    }
+    if ([productNames isKindOfClass:[NSDictionary class]]) {
+        // A locale -> name map. Prefer the current locale, then English, then anything.
+        NSDictionary<NSString *, NSString *> *names = productNames;
+        return names[[[NSLocale currentLocale] localeIdentifier]]
+            ?: names[@"en_US"]
+            ?: names.allValues.firstObject;
+    }
+    return nil;
 }
 
 + (nullable NSScreen *)systemScreenForDisplayID:(CGDirectDisplayID)displayID {
