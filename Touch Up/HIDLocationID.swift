@@ -37,42 +37,29 @@ extension HIDLocationID {
 
     private func findProperties(in entry: io_registry_entry_t, matchingLocationID: HIDLocationID) -> RawProperties? {
         var props: Unmanaged<CFMutableDictionary>?
-        if IORegistryEntryCreateCFProperties(entry, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
-           let properties = props?.takeRetainedValue() as? [String: Any] {
+        guard IORegistryEntryCreateCFProperties(entry, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+              let properties = props?.takeRetainedValue() as? [String: Any]
+        else { return nil }
 
-            // USB device nodes use lowercase "locationID"; HID nodes use kIOHIDLocationIDKey ("LocationID")
-            let entryLocationID = properties["locationID"] as? UInt32
-                ?? properties[kIOHIDLocationIDKey] as? UInt32
+        // USB device nodes use lowercase "locationID"; HID nodes use kIOHIDLocationIDKey ("LocationID")
+        let entryLocationID = properties["locationID"] as? UInt32
+            ?? properties[kIOHIDLocationIDKey] as? UInt32
 
-            if entryLocationID == matchingLocationID {
-                return RawProperties(
-                    name:         properties["USB Product Name"] as? String ?? properties[kIOHIDProductKey] as? String,
-                    vendorID:     (properties[kUSBVendorID] as? UInt32).map { UInt16($0) },
-                    productID:    (properties[kUSBProductID] as? UInt32).map { UInt16($0) },
-                    bcdDevice:    (properties["bcdDevice"] as? UInt32).map { UInt16($0) },
-                    serialNumber: properties[kUSBSerialNumberString] as? String ?? properties[kIOHIDSerialNumberKey] as? String
-                )
-            }
-        }
+        guard entryLocationID == matchingLocationID else { return nil }
 
-        // Recurse into children to find devices behind USB hubs
-        var childIterator: io_iterator_t = 0
-        guard IORegistryEntryGetChildIterator(entry, kIOServicePlane, &childIterator) == KERN_SUCCESS else {
-            return nil
-        }
-        defer { IOObjectRelease(childIterator) }
-
-        var child = IOIteratorNext(childIterator)
-        while child != 0 {
-            if let found = findProperties(in: child, matchingLocationID: matchingLocationID) {
-                IOObjectRelease(child)
-                return found
-            }
-            IOObjectRelease(child)
-            child = IOIteratorNext(childIterator)
-        }
-
-        return nil
+        // NOTE: We intentionally do NOT descend into child nodes. A device's interface
+        // and HID nubs inherit the same locationID but carry none of the vendor/product
+        // strings, so recursing and returning the first locationID hit would yield an
+        // all-nil result. `IOServiceGetMatchingServices(kIOUSBDeviceClassName, …)` already
+        // returns every USB device flatly — including ones behind hubs — so matching the
+        // device node directly is both sufficient and unambiguous.
+        return RawProperties(
+            name:         properties["USB Product Name"] as? String ?? properties[kIOHIDProductKey] as? String,
+            vendorID:     (properties[kUSBVendorID] as? UInt32).map { UInt16($0) },
+            productID:    (properties[kUSBProductID] as? UInt32).map { UInt16($0) },
+            bcdDevice:    (properties["bcdDevice"] as? UInt32).map { UInt16($0) },
+            serialNumber: properties[kUSBSerialNumberString] as? String ?? properties[kIOHIDSerialNumberKey] as? String
+        )
     }
     
     struct RawProperties {
