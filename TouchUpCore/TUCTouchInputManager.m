@@ -138,7 +138,7 @@
     if(touch.previousPhase != NSTouchPhaseEnded && !isNewTouch) {
         // update to an existing touch... check if stationary or not
         CGFloat digitizerRelDistance = sqrt(pow(touch.location.x - touch.previousLocation.x, 2) + pow(touch.location.y - touch.previousLocation.y, 2));
-        CGFloat screenSize = [self touchscreenForLocationID:locationID].physicalSize.width;
+        CGFloat screenSize = [self touchscreenForLocationID:locationID].nativePhysicalSize.width;
         //TODO: - Make customizable in settings?
         BOOL isStationary = (digitizerRelDistance * screenSize) < 0.1;
 //        BOOL isStationary = CGPointEqualToPoint(touch.location, touch.previousLocation);
