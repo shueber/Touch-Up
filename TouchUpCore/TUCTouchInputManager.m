@@ -48,6 +48,10 @@
     CloseHIDManager();
 }
 
+- (void)setTouchscreensSeized:(BOOL)seized {
+    SetTouchDevicesSeized(seized);
+}
+
 
 - (void)didConnectTouchscreenWithLocationID:(uint32_t)locationID {
     self.frameIDsByLocationID[@(locationID)] = @0;

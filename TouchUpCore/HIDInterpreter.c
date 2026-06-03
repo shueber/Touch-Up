@@ -23,6 +23,7 @@ typedef struct {
     uint32_t                locationID; // shared across interfaces of the same USB device
     CFIndex                 contactCollectionCount; // how many real multitouch contacts this interface reports
     Boolean                 isActive;
+    Boolean                 seized;     // whether we hold an exclusive (seized) open on this device
 
     IOHIDQueueRef           queue;
     Boolean                 areElementRefsSet;
@@ -54,6 +55,10 @@ static void* gTouchManager;
 static CFRunLoopRef gRunLoopRef;
 
 static IOHIDManagerRef gHidManager;
+
+// When true, accepted touch interfaces are opened exclusively (seized) so macOS and other
+// apps no longer receive their events — Touch Up becomes the sole handler. Opt-in.
+static Boolean gSeizeTouchDevices = false;
 
 
 #pragma mark - Device State Management
@@ -116,7 +121,12 @@ void DeallocateDeviceState(IOHIDDeviceRef device) {
     if (index < 0) return;
     
     HIDDeviceState *state = &gDevices[index];
-    
+
+    if (state->seized) {
+        IOHIDDeviceClose(state->device, kIOHIDOptionsTypeSeizeDevice);
+        state->seized = false;
+    }
+
     if (state->queue) {
         IOHIDQueueStop(state->queue);
         CFRelease(state->queue);
@@ -616,6 +626,24 @@ static CFIndex CountContactCollections(IOHIDDeviceRef dev) {
 }
 
 
+// Brings a device's exclusive-open state in line with gSeizeTouchDevices. Seizing routes
+// the device's events to us alone (macOS stops receiving them); releasing returns it to
+// shared use. Idempotent — only opens/closes when the state actually changes.
+static void ApplySeizeState(HIDDeviceState *state) {
+    if (gSeizeTouchDevices && !state->seized) {
+        IOReturn r = IOHIDDeviceOpen(state->device, kIOHIDOptionsTypeSeizeDevice);
+        if (r == kIOReturnSuccess) {
+            state->seized = true;
+        } else {
+            fprintf(stderr, "Failed to seize device 0x%08x (IOReturn 0x%08x)\n", state->locationID, r);
+        }
+    } else if (!gSeizeTouchDevices && state->seized) {
+        IOHIDDeviceClose(state->device, kIOHIDOptionsTypeSeizeDevice);
+        state->seized = false;
+    }
+}
+
+
 // Allocates device state and wires up the queue + input callbacks for an interface we've
 // decided to treat as the active touchscreen. The callback context is the device ref so
 // callbacks resolve to the right per-interface state even when locationIDs collide.
@@ -633,6 +661,8 @@ static HIDDeviceState* RegisterTouchDevice(IOHIDDeviceRef dev, uint32_t location
     IOHIDQueueScheduleWithRunLoop(queue, gRunLoopRef, kCFRunLoopCommonModes);
 
     IOHIDDeviceRegisterInputValueCallback(dev, Handle_InputValueCallback, context);
+
+    ApplySeizeState(device);
     return device;
 }
 
@@ -797,12 +827,26 @@ void OpenHIDManager(void *delegate) {
 
 
 void CloseHIDManager(void) {
-    // clean up all active device states
+    // clean up all active device states (DeallocateDeviceState releases any seize)
     while (gDeviceCount > 0) {
         DeallocateDeviceState(gDevices[0].device);
     }
-    
+
     IOHIDManagerUnscheduleFromRunLoop(gHidManager, gRunLoopRef, kCFRunLoopCommonModes);
     IOHIDManagerClose(gHidManager, kIOHIDOptionsTypeNone);
+}
+
+
+// Opt-in exclusive access: when enabled, every accepted touch interface (current and
+// future) is seized so macOS no longer receives its events. Applies immediately to all
+// currently-connected touch devices; pen interfaces we never registered stay shared, so
+// the pen keeps working through macOS.
+void SetTouchDevicesSeized(bool seize) {
+    gSeizeTouchDevices = seize;
+    for (int i = 0; i < gDeviceCount; i++) {
+        if (gDevices[i].isActive) {
+            ApplySeizeState(&gDevices[i]);
+        }
+    }
 }
 
