@@ -172,6 +172,27 @@
     return absLoc;
 }
 
+- (CGPoint)convertGlassPointToContentPoint:(CGPoint)glassPoint {
+    CGFloat glassAspect   = self.nativeResolution.width / self.nativeResolution.height;
+    CGFloat contentAspect = self.frame.size.width / self.frame.size.height;
+    if (glassAspect <= 0 || contentAspect <= 0) {
+        return glassPoint;
+    }
+
+    // Aspect-fit the content into the glass: it fills one axis fully and is centred on the
+    // other, the remaining strip being the black letterbox/pillarbox bars.
+    CGFloat fracW = (contentAspect >= glassAspect) ? 1.0 : contentAspect / glassAspect;
+    CGFloat fracH = (contentAspect >= glassAspect) ? glassAspect / contentAspect : 1.0;
+
+    CGFloat x = (glassPoint.x - (1.0 - fracW) / 2.0) / fracW;
+    CGFloat y = (glassPoint.y - (1.0 - fracH) / 2.0) / fracH;
+
+    // A touch landing on a bar falls outside the content; snap it to the nearest edge.
+    x = MAX(0.0, MIN(1.0, x));
+    y = MAX(0.0, MIN(1.0, y));
+    return CGPointMake(x, y);
+}
+
 
 
 - (NSString *)debugDescription {

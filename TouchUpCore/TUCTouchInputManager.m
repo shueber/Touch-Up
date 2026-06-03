@@ -536,30 +536,33 @@
  If the display is rotated, we need to rotate these points
  */
 - (CGPoint)convertDigitizerPointToRelativeScreenPoint:(CGPoint)devicePoint locationID:(uint32_t)locationID {
-    CGFloat rotation = [self touchscreenForLocationID:locationID].rotation;
-    
+    TUCScreen *screen = [self touchscreenForLocationID:locationID];
+
+    CGFloat rotation = screen.rotation;
+
     CGFloat extra = [[self delegate] digitizerRotationForLocationID:locationID];
-    
+
     rotation += extra;
     rotation = fmod(rotation, 360);
     if (rotation < 0) {
         rotation += 360;
     }
-    
-    if (rotation == 0) {
-        return devicePoint;
-        
-    } else if (rotation == 180) {
-        return CGPointMake(1 - devicePoint.x, 1 - devicePoint.y);
-        
+
+    // Rotate the glass-relative point into the screen's content orientation.
+    CGPoint rotated;
+    if (rotation == 180) {
+        rotated = CGPointMake(1 - devicePoint.x, 1 - devicePoint.y);
     } else if (rotation == 90) {
-        return CGPointMake(1 - devicePoint.y, devicePoint.x);
-        
+        rotated = CGPointMake(1 - devicePoint.y, devicePoint.x);
     } else if (rotation == 270) {
-        return CGPointMake(devicePoint.y, 1 - devicePoint.x);
+        rotated = CGPointMake(devicePoint.y, 1 - devicePoint.x);
+    } else {
+        rotated = devicePoint;
     }
-    
-    return devicePoint;
+
+    // Then account for any letterboxing when the content doesn't fill the panel (mirroring
+    // a differently-shaped display). A no-op when the aspect ratios already match.
+    return [screen convertGlassPointToContentPoint:rotated];
 }
 
 

@@ -19,9 +19,11 @@
 #define kMaxTouchscreens 4
 
 typedef struct {
-    uint32_t                locationID;
+    IOHIDDeviceRef          device;     // unique identity of this HID interface
+    uint32_t                locationID; // shared across interfaces of the same USB device
+    CFIndex                 contactCollectionCount; // how many real multitouch contacts this interface reports
     Boolean                 isActive;
-    
+
     IOHIDQueueRef           queue;
     Boolean                 areElementRefsSet;
     
@@ -57,7 +59,21 @@ static IOHIDManagerRef gHidManager;
 #pragma mark - Device State Management
 
 
-HIDDeviceState* DeviceStateForLocationID(uint32_t locationID) {
+// State is keyed by the IOHIDDeviceRef, not the locationID: a combo digitizer presents
+// several HID interfaces that all share one locationID, so the device ref is the only
+// reliable per-interface identity.
+HIDDeviceState* DeviceStateForRef(IOHIDDeviceRef device) {
+    for (int i = 0; i < gDeviceCount; i++) {
+        if (gDevices[i].isActive && gDevices[i].device == device) {
+            return &gDevices[i];
+        }
+    }
+    return NULL;
+}
+
+// Returns the single interface we've accepted as *the* touchscreen for this locationID
+// (the one with the most contact collections), or NULL if none is registered yet.
+HIDDeviceState* RegisteredDeviceForLocationID(uint32_t locationID) {
     for (int i = 0; i < gDeviceCount; i++) {
         if (gDevices[i].isActive && gDevices[i].locationID == locationID) {
             return &gDevices[i];
@@ -67,15 +83,16 @@ HIDDeviceState* DeviceStateForLocationID(uint32_t locationID) {
 }
 
 
-HIDDeviceState* AllocateDeviceState(uint32_t locationID) {
+HIDDeviceState* AllocateDeviceState(IOHIDDeviceRef device, uint32_t locationID) {
     if (gDeviceCount >= kMaxTouchscreens) {
         fprintf(stderr, "Maximum number of touchscreens (%d) reached.\n", kMaxTouchscreens);
         return NULL;
     }
-    
+
     HIDDeviceState *state = &gDevices[gDeviceCount];
     memset(state, 0, sizeof(HIDDeviceState));
-    
+
+    state->device = device;
     state->locationID = locationID;
     state->isActive = TRUE;
     state->contactCount = 1;
@@ -88,10 +105,10 @@ HIDDeviceState* AllocateDeviceState(uint32_t locationID) {
 }
 
 
-void DeallocateDeviceState(uint32_t locationID) {
+void DeallocateDeviceState(IOHIDDeviceRef device) {
     int index = -1;
     for (int i = 0; i < gDeviceCount; i++) {
-        if (gDevices[i].isActive && gDevices[i].locationID == locationID) {
+        if (gDevices[i].isActive && gDevices[i].device == device) {
             index = i;
             break;
         }
@@ -516,10 +533,9 @@ static void Handle_QueueValueAvailable(
     IOReturn                result,
     void * _Nullable        inSender
 ) {
-    uint32_t locationID = (uint32_t)(uintptr_t)context;
-    HIDDeviceState *device = DeviceStateForLocationID(locationID);
+    HIDDeviceState *device = DeviceStateForRef((IOHIDDeviceRef)context);
     if (!device) return;
-    
+
     do {
         IOHIDValueRef valueRef = IOHIDQueueCopyNextValueWithTimeout((IOHIDQueueRef) inSender, 0.);
         if (!valueRef)  {
@@ -542,10 +558,9 @@ static void Handle_InputValueCallback (
     void *          inSender,       // the IOHIDManagerRef
     IOHIDValueRef   inIOHIDValueRef // the new element value
 ) {
-    uint32_t locationID = (uint32_t)(uintptr_t)inContext;
-    HIDDeviceState *device = DeviceStateForLocationID(locationID);
+    HIDDeviceState *device = DeviceStateForRef((IOHIDDeviceRef)inContext);
     if (!device) return;
-    
+
     if(!device->areElementRefsSet) {
         IOHIDElementRef e = IOHIDValueGetElement(inIOHIDValueRef);
         IdentifyElements(device, e, TRUE);
@@ -569,6 +584,146 @@ static void Handle_InputValueCallback (
 
 
 
+/**
+ Counts the logical collections that contain a ContactIdentifier, i.e. the number of
+ simultaneous touch contacts this HID interface can report. This is how we tell the real
+ multitouch surface (several contacts) apart from a sibling interface that only exposes a
+ single-pointer or pen path (one or zero contacts) under the same locationID.
+ */
+static CFIndex CountContactCollections(IOHIDDeviceRef dev) {
+    CFArrayRef elements = IOHIDDeviceCopyMatchingElements(dev, NULL, kIOHIDOptionsTypeNone);
+    if (!elements) return 0;
+
+    CFIndex contactCollections = 0;
+    CFIndex count = CFArrayGetCount(elements);
+    for (CFIndex i = 0; i < count; i++) {
+        IOHIDElementRef el = (IOHIDElementRef)CFArrayGetValueAtIndex(elements, i);
+        if (IOHIDElementGetType(el) != kIOHIDElementTypeCollection) continue;
+        if (IOHIDElementGetCollectionType(el) != kIOHIDElementCollectionTypeLogical) continue;
+
+        CFArrayRef kids = IOHIDElementGetChildren(el);
+        for (CFIndex j = 0; j < CFArrayGetCount(kids); j++) {
+            IOHIDElementRef kid = (IOHIDElementRef)CFArrayGetValueAtIndex(kids, j);
+            if (IOHIDElementGetUsagePage(kid) == kHIDPage_Digitizer &&
+                IOHIDElementGetUsage(kid) == kHIDUsage_Dig_ContactIdentifier) {
+                contactCollections++;
+                break;
+            }
+        }
+    }
+    CFRelease(elements);
+    return contactCollections;
+}
+
+
+/**
+ Diagnostic: dump the identity of a matched HID device. A combo digitizer (e.g. Wacom
+ pen+touch) presents multiple HID interfaces under a single USB device, so they all
+ share the same locationID and can only be told apart by their usage. Logging the
+ primary usage and the full usage-pair list lets us confirm on real hardware what
+ distinguishes the duplicate entries before we decide how to key/filter them.
+ */
+static void PrintDeviceIdentity(IOHIDDeviceRef dev, uint32_t locationID) {
+    CFIndex primaryPage = 0, primaryUsage = 0;
+    CFNumberRef p = IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDPrimaryUsagePageKey));
+    CFNumberRef u = IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDPrimaryUsageKey));
+    if (p) CFNumberGetValue(p, kCFNumberCFIndexType, &primaryPage);
+    if (u) CFNumberGetValue(u, kCFNumberCFIndexType, &primaryUsage);
+
+    CFIndex vendorID = 0, productID = 0;
+    CFNumberRef v = IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDVendorIDKey));
+    CFNumberRef pid = IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDProductIDKey));
+    if (v) CFNumberGetValue(v, kCFNumberCFIndexType, &vendorID);
+    if (pid) CFNumberGetValue(pid, kCFNumberCFIndexType, &productID);
+
+    char product[256] = "(?)";
+    CFStringRef name = IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDProductKey));
+    if (name) CFStringGetCString(name, product, sizeof(product), kCFStringEncodingUTF8);
+
+    printf("=== matched HID device: %p\n", (void *)dev);
+    printf("    locationID:   0x%08x\n", locationID);
+    printf("    product:      %s (VID 0x%04lx PID 0x%04lx)\n", product, vendorID, productID);
+    printf("    primaryUsage: page 0x%02lx usage 0x%02lx\n", primaryPage, primaryUsage);
+
+    CFArrayRef pairs = IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDDeviceUsagePairsKey));
+    if (pairs) {
+        CFIndex n = CFArrayGetCount(pairs);
+        printf("    usagePairs (%ld):\n", n);
+        for (CFIndex i = 0; i < n; i++) {
+            CFDictionaryRef pair = CFArrayGetValueAtIndex(pairs, i);
+            CFIndex pg = 0, us = 0;
+            CFNumberRef pgRef = CFDictionaryGetValue(pair, CFSTR(kIOHIDDeviceUsagePageKey));
+            CFNumberRef usRef = CFDictionaryGetValue(pair, CFSTR(kIOHIDDeviceUsageKey));
+            if (pgRef) CFNumberGetValue(pgRef, kCFNumberCFIndexType, &pg);
+            if (usRef) CFNumberGetValue(usRef, kCFNumberCFIndexType, &us);
+            printf("      - page 0x%02lx usage 0x%02lx\n", pg, us);
+        }
+    }
+    // Inspect the actual element tree to see which interface carries real multitouch
+    // contacts: count logical collections that contain a ContactIdentifier. The pen
+    // interface will have 0 (or only a single pointer collection), the multitouch
+    // surface will have several (one per simultaneous finger).
+    CFArrayRef elements = IOHIDDeviceCopyMatchingElements(dev, NULL, kIOHIDOptionsTypeNone);
+    if (elements) {
+        CFIndex contactCollections = 0;
+        CFIndex appTouchScreen = 0, appPen = 0, appFinger = 0;
+        CFIndex count = CFArrayGetCount(elements);
+        for (CFIndex i = 0; i < count; i++) {
+            IOHIDElementRef el = (IOHIDElementRef)CFArrayGetValueAtIndex(elements, i);
+            IOHIDElementType type = IOHIDElementGetType(el);
+            if (type != kIOHIDElementTypeCollection) continue;
+
+            CFIndex pg = IOHIDElementGetUsagePage(el);
+            CFIndex us = IOHIDElementGetUsage(el);
+            IOHIDElementCollectionType ct = IOHIDElementGetCollectionType(el);
+
+            if (ct == kIOHIDElementCollectionTypeApplication && pg == kHIDPage_Digitizer) {
+                if (us == kHIDUsage_Dig_TouchScreen) appTouchScreen++;
+                else if (us == kHIDUsage_Dig_Pen)    appPen++;
+                else if (us == kHIDUsage_Dig_Finger)  appFinger++;
+            }
+
+            if (ct == kIOHIDElementCollectionTypeLogical) {
+                CFArrayRef kids = IOHIDElementGetChildren(el);
+                for (CFIndex j = 0; j < CFArrayGetCount(kids); j++) {
+                    IOHIDElementRef kid = (IOHIDElementRef)CFArrayGetValueAtIndex(kids, j);
+                    if (IOHIDElementGetUsagePage(kid) == kHIDPage_Digitizer &&
+                        IOHIDElementGetUsage(kid) == kHIDUsage_Dig_ContactIdentifier) {
+                        contactCollections++;
+                        break;
+                    }
+                }
+            }
+        }
+        printf("    appCollections: TouchScreen=%ld Pen=%ld Finger=%ld\n", appTouchScreen, appPen, appFinger);
+        printf("    contactCollections (logical w/ ContactIdentifier): %ld\n", contactCollections);
+        CFRelease(elements);
+    }
+    printf("===\n");
+}
+
+
+// Allocates device state and wires up the queue + input callbacks for an interface we've
+// decided to treat as the active touchscreen. The callback context is the device ref so
+// callbacks resolve to the right per-interface state even when locationIDs collide.
+static HIDDeviceState* RegisterTouchDevice(IOHIDDeviceRef dev, uint32_t locationID, CFIndex contactCount) {
+    HIDDeviceState *device = AllocateDeviceState(dev, locationID);
+    if (!device) return NULL;
+    device->contactCollectionCount = contactCount;
+
+    void *context = (void *)dev;
+
+    IOHIDQueueRef queue = IOHIDQueueCreate(kCFAllocatorDefault, dev, 1000, kNilOptions);
+    IOHIDQueueRegisterValueAvailableCallback(queue, Handle_QueueValueAvailable, context);
+    IOHIDQueueStart(queue);
+    device->queue = queue;
+    IOHIDQueueScheduleWithRunLoop(queue, gRunLoopRef, kCFRunLoopCommonModes);
+
+    IOHIDDeviceRegisterInputValueCallback(dev, Handle_InputValueCallback, context);
+    return device;
+}
+
+
 // this will be called when the HID Manager matches a new (hot plugged) HID device
 static void Handle_DeviceMatchingCallback(
     void *          inContext,       // context from IOHIDManagerRegisterDeviceMatchingCallback
@@ -578,38 +733,41 @@ static void Handle_DeviceMatchingCallback(
 ) {
     printf("%s(context: %p, result: %p, sender: %p, device: %p).\n",
            __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
-    
+
     // read the location ID for this device
     CFNumberRef locationRef = IOHIDDeviceGetProperty(inIOHIDDeviceRef, CFSTR(kIOHIDLocationIDKey));
     uint32_t locationID = 0;
     if (locationRef) {
         CFNumberGetValue(locationRef, kCFNumberSInt32Type, &locationID);
     }
-    
+
     printf("Touchscreen connected with locationID: 0x%08x\n", locationID);
-    
-    HIDDeviceState *device = AllocateDeviceState(locationID);
-    if (!device) return;
-    
-    void *locationContext = (void *)(uintptr_t)locationID;
-    
-    IOHIDQueueRef queue = IOHIDQueueCreate(kCFAllocatorDefault, inIOHIDDeviceRef, 1000, kNilOptions);
-    
-    if (CFGetTypeID(queue) != IOHIDQueueGetTypeID()) {
-        // this is not a valid HID queue reference!
+
+    PrintDeviceIdentity(inIOHIDDeviceRef, locationID);
+
+    // A combo digitizer exposes several interfaces under one locationID. Keep only the one
+    // that actually carries multitouch: the interface with the most contact collections.
+    CFIndex contactCount = CountContactCollections(inIOHIDDeviceRef);
+    HIDDeviceState *existing = RegisteredDeviceForLocationID(locationID);
+
+    if (existing == NULL) {
+        if (RegisterTouchDevice(inIOHIDDeviceRef, locationID, contactCount)) {
+            TouchInputManagerDidConnectTouchscreen(gTouchManager, locationID);
+        }
+    } else if (contactCount > existing->contactCollectionCount) {
+        // A better interface for an already-connected screen arrived (connect order is not
+        // deterministic). Swap to it without bothering the upper layer — the locationID,
+        // which is all the upper layer keys on, stays connected throughout.
+        printf("Switching primary interface for 0x%08x: %ld -> %ld contact collections\n",
+               locationID, existing->contactCollectionCount, contactCount);
+        IOHIDDeviceRef oldDev = existing->device;
+        IOHIDDeviceRegisterInputValueCallback(oldDev, NULL, NULL);
+        DeallocateDeviceState(oldDev);
+        RegisterTouchDevice(inIOHIDDeviceRef, locationID, contactCount);
+    } else {
+        printf("Ignoring secondary interface for 0x%08x (%ld <= %ld contact collections)\n",
+               locationID, contactCount, existing->contactCollectionCount);
     }
-    
-    IOHIDQueueRegisterValueAvailableCallback(queue, Handle_QueueValueAvailable, locationContext);
-    IOHIDQueueStart(queue);
-    device->queue = queue;
-    
-    IOHIDQueueScheduleWithRunLoop(queue, gRunLoopRef, kCFRunLoopCommonModes);
-    
-    // register per-device input value callback
-    IOHIDDeviceRegisterInputValueCallback(inIOHIDDeviceRef, Handle_InputValueCallback, locationContext);
-    
-    TouchInputManagerDidConnectTouchscreen(gTouchManager, locationID);
-    
 }   // Handle_DeviceMatchingCallback
 
 
@@ -624,16 +782,17 @@ static void Handle_RemovalCallback(
     printf("%s(context: %p, result: %p, sender: %p, device: %p).\n",
            __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
     
-    CFNumberRef locationRef = IOHIDDeviceGetProperty(inIOHIDDeviceRef, CFSTR(kIOHIDLocationIDKey));
-    uint32_t locationID = 0;
-    if (locationRef) {
-        CFNumberGetValue(locationRef, kCFNumberSInt32Type, &locationID);
-    }
-    
+    // Only the interface we actually registered as the touchscreen has state. Secondary
+    // interfaces we ignored at match time have none, so their removal is a no-op and must
+    // not tell the upper layer the screen went away while the primary is still present.
+    HIDDeviceState *device = DeviceStateForRef(inIOHIDDeviceRef);
+    if (!device) return;
+
+    uint32_t locationID = device->locationID;
     printf("Touchscreen disconnected with locationID: 0x%08x\n", locationID);
-    
-    DeallocateDeviceState(locationID);
-    
+
+    DeallocateDeviceState(inIOHIDDeviceRef);
+
     TouchInputManagerDidDisconnectTouchscreen(gTouchManager, locationID);
 }   // Handle_RemovalCallback
 
@@ -729,7 +888,7 @@ void OpenHIDManager(void *delegate) {
 void CloseHIDManager(void) {
     // clean up all active device states
     while (gDeviceCount > 0) {
-        DeallocateDeviceState(gDevices[0].locationID);
+        DeallocateDeviceState(gDevices[0].device);
     }
     
     IOHIDManagerUnscheduleFromRunLoop(gHidManager, gRunLoopRef, kCFRunLoopCommonModes);
