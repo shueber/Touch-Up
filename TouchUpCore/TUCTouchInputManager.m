@@ -599,62 +599,94 @@
 }
 
 
+- (BOOL)isSystemChromeOwner:(pid_t)pid name:(NSString *)ownerName {
+    static NSSet<NSString *> *chromeBundleIDs;
+    static NSSet<NSString *> *chromeOwnerNames;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        chromeBundleIDs = [NSSet setWithArray:@[
+            @"com.apple.dock",
+            @"com.apple.controlcenter",
+            @"com.apple.notificationcenterui",
+        ]];
+        // The Window Server has no NSRunningApplication, so match it by owner name.
+        chromeOwnerNames = [NSSet setWithArray:@[ @"Window Server", @"WindowServer" ]];
+    });
+
+    if (ownerName && [chromeOwnerNames containsObject:ownerName]) {
+        return YES;
+    }
+
+    NSString *bundleID = [NSRunningApplication runningApplicationWithProcessIdentifier:pid].bundleIdentifier;
+    return bundleID != nil && [chromeBundleIDs containsObject:bundleID];
+}
+
+
 - (BOOL)isLocationOutsideFrontmostWindow:(CGPoint)point locationID:(uint32_t)locationID {
-    
+
     if ([self isPointInMenuBar:point locationID:locationID]) {
         return NO;
     }
-    
+
     pid_t frontmostPID = [[[NSWorkspace sharedWorkspace] frontmostApplication] processIdentifier];
-    
-    CFArrayRef array;
-    array = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly|kCGWindowListExcludeDesktopElements, kCGNullWindowID);
-    
-    //    NSLog(@"%@", array);
-    
+
+    CFArrayRef array = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly|kCGWindowListExcludeDesktopElements, kCGNullWindowID);
+
+    // The window list is ordered front-to-back by window *level* (not grouped by app), so
+    // high-level overlays — including our own screenSaver-level panels — come before the
+    // active app's normal windows. `behindFrontmostWindow` flips once we pass the active
+    // app's topmost window: windows seen before it are stacked above it, windows after are
+    // behind it.
     BOOL behindFrontmostWindow = NO;
-    
-    // propagate through window list the structure of this array is as follows:
-    // [control center and menubar] [windows of frontmost app] [windows of other apps]
-    // we have to insert a click to bring other windows to front, but not the menubar / control center stuff
-    
     BOOL res = NO;
-    //    CFStringRef name = CFDictionaryGetValue(dic, kCGWindowOwnerPID);
-    
+
     for (CFIndex i=0; i<CFArrayGetCount(array); i++) {
         CFDictionaryRef dic = CFArrayGetValueAtIndex(array, i);
-        
+
         CFNumberRef numPid = CFDictionaryGetValue(dic, kCGWindowOwnerPID);
         pid_t currPID;
         CFNumberGetValue(numPid, kCFNumberIntType,  &currPID);
         BOOL isFrontmostApp = currPID == frontmostPID;
-        
-        // in fullscreen the app might also own the menu bar backgground window, so we need to test
+
         CFDictionaryRef bounds = CFDictionaryGetValue(dic, kCGWindowBounds);
         CGRect nextFrame;
         CGRectMakeWithDictionaryRepresentation(bounds, &nextFrame);
         BOOL isInside = CGRectContainsPoint(nextFrame, point);
-        
-        
+
         if (isFrontmostApp && !behindFrontmostWindow) {
             behindFrontmostWindow = YES;
         }
-        
-        
-        
-        if (isInside && !behindFrontmostWindow) {
-            // operate without additional clicks
-            res = NO;
-            break;
+
+        if (!isInside) continue;
+
+        NSString *ownerName = (__bridge NSString *)CFDictionaryGetValue(dic, kCGWindowOwnerName);
+        if ([self isSystemChromeOwner:currPID name:ownerName]) {
+            continue;
         }
-        
-        else if (isInside && behindFrontmostWindow && !isFrontmostApp) {
-            res = YES;
-            break;
+
+        // First real window under the point = the one the finger actually hits.
+        if (isFrontmostApp) {
+            res = NO;   // already the active window — the tap actuates it directly
+        } else if (!behindFrontmostWindow) {
+            res = NO;   // stacked above the active app (an overlay or our own panel) — takes the tap directly
+        } else {
+            // A background window of another app — normally inject a click to raise it.
+            // Exception: the title bar. A background title bar accepts clicks directly, so
+            // our injected raise-click plus the tap's own click would register as a
+            // title-bar double-click (→ zoom/fullscreen). A single tap already raises the
+            // window, so skip the extra click within the title-bar strip.
+            //
+            // CGWindowList can't tell us the actual title-bar/toolbar height, so this is a
+            // heuristic constant. Erring high (toolbars on Tahoe are tall) costs at most a
+            // missed raise-click near the top of a background window; erring low brings the
+            // destructive double-click-zoom back.
+            CGFloat titleBarHeight = 44;
+            BOOL inTitleBar = (point.y - nextFrame.origin.y) <= titleBarHeight;
+            res = inTitleBar ? NO : YES;
         }
-        
+        break;
     }
-    
+
     CFRelease(array);
     return res;
 }

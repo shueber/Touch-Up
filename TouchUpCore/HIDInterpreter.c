@@ -616,93 +616,6 @@ static CFIndex CountContactCollections(IOHIDDeviceRef dev) {
 }
 
 
-/**
- Diagnostic: dump the identity of a matched HID device. A combo digitizer (e.g. Wacom
- pen+touch) presents multiple HID interfaces under a single USB device, so they all
- share the same locationID and can only be told apart by their usage. Logging the
- primary usage and the full usage-pair list lets us confirm on real hardware what
- distinguishes the duplicate entries before we decide how to key/filter them.
- */
-static void PrintDeviceIdentity(IOHIDDeviceRef dev, uint32_t locationID) {
-    CFIndex primaryPage = 0, primaryUsage = 0;
-    CFNumberRef p = IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDPrimaryUsagePageKey));
-    CFNumberRef u = IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDPrimaryUsageKey));
-    if (p) CFNumberGetValue(p, kCFNumberCFIndexType, &primaryPage);
-    if (u) CFNumberGetValue(u, kCFNumberCFIndexType, &primaryUsage);
-
-    CFIndex vendorID = 0, productID = 0;
-    CFNumberRef v = IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDVendorIDKey));
-    CFNumberRef pid = IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDProductIDKey));
-    if (v) CFNumberGetValue(v, kCFNumberCFIndexType, &vendorID);
-    if (pid) CFNumberGetValue(pid, kCFNumberCFIndexType, &productID);
-
-    char product[256] = "(?)";
-    CFStringRef name = IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDProductKey));
-    if (name) CFStringGetCString(name, product, sizeof(product), kCFStringEncodingUTF8);
-
-    printf("=== matched HID device: %p\n", (void *)dev);
-    printf("    locationID:   0x%08x\n", locationID);
-    printf("    product:      %s (VID 0x%04lx PID 0x%04lx)\n", product, vendorID, productID);
-    printf("    primaryUsage: page 0x%02lx usage 0x%02lx\n", primaryPage, primaryUsage);
-
-    CFArrayRef pairs = IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDDeviceUsagePairsKey));
-    if (pairs) {
-        CFIndex n = CFArrayGetCount(pairs);
-        printf("    usagePairs (%ld):\n", n);
-        for (CFIndex i = 0; i < n; i++) {
-            CFDictionaryRef pair = CFArrayGetValueAtIndex(pairs, i);
-            CFIndex pg = 0, us = 0;
-            CFNumberRef pgRef = CFDictionaryGetValue(pair, CFSTR(kIOHIDDeviceUsagePageKey));
-            CFNumberRef usRef = CFDictionaryGetValue(pair, CFSTR(kIOHIDDeviceUsageKey));
-            if (pgRef) CFNumberGetValue(pgRef, kCFNumberCFIndexType, &pg);
-            if (usRef) CFNumberGetValue(usRef, kCFNumberCFIndexType, &us);
-            printf("      - page 0x%02lx usage 0x%02lx\n", pg, us);
-        }
-    }
-    // Inspect the actual element tree to see which interface carries real multitouch
-    // contacts: count logical collections that contain a ContactIdentifier. The pen
-    // interface will have 0 (or only a single pointer collection), the multitouch
-    // surface will have several (one per simultaneous finger).
-    CFArrayRef elements = IOHIDDeviceCopyMatchingElements(dev, NULL, kIOHIDOptionsTypeNone);
-    if (elements) {
-        CFIndex contactCollections = 0;
-        CFIndex appTouchScreen = 0, appPen = 0, appFinger = 0;
-        CFIndex count = CFArrayGetCount(elements);
-        for (CFIndex i = 0; i < count; i++) {
-            IOHIDElementRef el = (IOHIDElementRef)CFArrayGetValueAtIndex(elements, i);
-            IOHIDElementType type = IOHIDElementGetType(el);
-            if (type != kIOHIDElementTypeCollection) continue;
-
-            CFIndex pg = IOHIDElementGetUsagePage(el);
-            CFIndex us = IOHIDElementGetUsage(el);
-            IOHIDElementCollectionType ct = IOHIDElementGetCollectionType(el);
-
-            if (ct == kIOHIDElementCollectionTypeApplication && pg == kHIDPage_Digitizer) {
-                if (us == kHIDUsage_Dig_TouchScreen) appTouchScreen++;
-                else if (us == kHIDUsage_Dig_Pen)    appPen++;
-                else if (us == kHIDUsage_Dig_Finger)  appFinger++;
-            }
-
-            if (ct == kIOHIDElementCollectionTypeLogical) {
-                CFArrayRef kids = IOHIDElementGetChildren(el);
-                for (CFIndex j = 0; j < CFArrayGetCount(kids); j++) {
-                    IOHIDElementRef kid = (IOHIDElementRef)CFArrayGetValueAtIndex(kids, j);
-                    if (IOHIDElementGetUsagePage(kid) == kHIDPage_Digitizer &&
-                        IOHIDElementGetUsage(kid) == kHIDUsage_Dig_ContactIdentifier) {
-                        contactCollections++;
-                        break;
-                    }
-                }
-            }
-        }
-        printf("    appCollections: TouchScreen=%ld Pen=%ld Finger=%ld\n", appTouchScreen, appPen, appFinger);
-        printf("    contactCollections (logical w/ ContactIdentifier): %ld\n", contactCollections);
-        CFRelease(elements);
-    }
-    printf("===\n");
-}
-
-
 // Allocates device state and wires up the queue + input callbacks for an interface we've
 // decided to treat as the active touchscreen. The callback context is the device ref so
 // callbacks resolve to the right per-interface state even when locationIDs collide.
@@ -742,8 +655,6 @@ static void Handle_DeviceMatchingCallback(
     }
 
     printf("Touchscreen connected with locationID: 0x%08x\n", locationID);
-
-    PrintDeviceIdentity(inIOHIDDeviceRef, locationID);
 
     // A combo digitizer exposes several interfaces under one locationID. Keep only the one
     // that actually carries multitouch: the interface with the most contact collections.
