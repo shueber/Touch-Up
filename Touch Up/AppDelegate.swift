@@ -79,6 +79,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ aNotification: Notification) {
         // Insert code here to tear down your application
+        self.model.persistAllDigitizerMappings()
         self.model.touchManager.stop()
     }
 
@@ -99,7 +100,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.model.isPublishingMouseEventsEnabled = preState
         }
         
-        if let screen = screen ?? TUCScreen.allScreens().first as? TUCScreen {
+        if let screen = screen ?? TUCScreen.allScreens().first {
             self.debugOverlay.makeVisible(onScreen: screen, digitizerLocationID: locationID)
         }
     }
@@ -133,6 +134,7 @@ class SettingsWindow: NSWindow {
     
     override func close() {
         self.model?.savePreferences()
+//        self.model?.persistAllDigitizerMappings()
         NSApp.stopModal()
         super.close()
     }

@@ -34,23 +34,9 @@ struct SettingsView: View {
     }
     
     var top: some View {
-        Group {
-            Toggle(model.uiLabels(for: \.isPublishingMouseEventsEnabled).title, isOn: $model.isPublishingMouseEventsEnabled)
-            
-            let id_: Binding<UInt> = Binding {return (model.connectedTouchscreen?.id) ?? 0}
-            set: { value in
-                model.connectedTouchscreen = model.connectedScreens.first(where:{$0.id == value})
-                model.rememeberCues()
-            }
-
-            Picker(model.uiLabels(for: \.connectedTouchscreen).title, selection: id_) {
-                ForEach(model.connectedScreens) {
-                    Text($0.name).tag($0.id)
-                }
-            }
-        }
+        Toggle(model.uiLabels(for: \.isPublishingMouseEventsEnabled).title, isOn: $model.isPublishingMouseEventsEnabled)
     }
-    
+
     
     var gestureSettings: some View {
         Group {
@@ -111,30 +97,10 @@ struct SettingsView: View {
             Toggle(isOn: $model.ignoreOriginTouches) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.ignoreOriginTouches))
             }
-            
-            
-            Picker(selection: $model.additionalDigitizerRotation) {
-                let rotations: [CGFloat] = [0.0, 90.0, 180.0, 270.0]
-                ForEach(rotations, id: \.self) {
-                    Text("\(Int($0))°").tag($0)
-                }
-            } label: {
-                SettingsExplanationLabel(labels: model.uiLabels(for: \.additionalDigitizerRotation))
+
+            Toggle(isOn: $model.areAdditionalDigitizerRotationSettingsVisible) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.areAdditionalDigitizerRotationSettingsVisible))
             }
-            
-            Button(action: {
-                (NSApp.delegate as? AppDelegate)?.showDebugOverlay()
-            }, label: {
-                HStack {
-                    Text("Open Fullscreen Test Environment")
-                    Spacer()
-                    Image(systemName: "arrow.up.forward.app.fill")
-                }
-                
-            })
-            .foregroundColor(.accentColor)
-            .buttonStyle(PlainButtonStyle())
-            
         }
     }
     
@@ -182,6 +148,10 @@ struct SettingsView: View {
                     top
                 }
 
+                Section("Touchscreens") {
+                    DigitizerMappingView(model: self.model)
+                }
+
                 Section("Gestures") {
                     gestureSettings
                 }
@@ -208,7 +178,11 @@ struct SettingsView: View {
                 LegacySection {
                     top
                 }
-                
+
+                LegacySection(title: "Touchscreens") {
+                    DigitizerMappingView(model: self.model)
+                }
+
                 LegacySection(title: "Gestures") {
                     gestureSettings
                 }
