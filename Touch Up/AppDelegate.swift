@@ -8,6 +8,7 @@
 import Cocoa
 import SwiftUI
 import Combine
+import TouchUpCore
 
 
 @main
@@ -78,6 +79,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ aNotification: Notification) {
         // Insert code here to tear down your application
+        self.model.persistAllDigitizerMappings()
         self.model.touchManager.stop()
     }
 
@@ -90,7 +92,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         self.settingsWindow.makeVisible()
     }
     
-    func showDebugOverlay() {
+    func showDebugOverlay(on screen: TUCScreen? = nil, digitizer locationID: HIDLocationID? = nil) {
         let preState = self.model.isPublishingMouseEventsEnabled
         self.model.isPublishingMouseEventsEnabled = false
         DebugOverlay.completion = {[unowned self] in
@@ -98,7 +100,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.model.isPublishingMouseEventsEnabled = preState
         }
         
-        self.debugOverlay.makeVisible()
+        if let screen = screen ?? TUCScreen.allScreens().first {
+            self.debugOverlay.makeVisible(onScreen: screen, digitizerLocationID: locationID)
+        }
     }
 }
 
@@ -119,7 +123,7 @@ class SettingsWindow: NSWindow {
         window.title = "Touch Up Settings"
         window.tabbingMode = .disallowed
         window.model = model
-        window.level = .popUpMenu
+        window.level = .screenSaver
         window.collectionBehavior = [.canJoinAllSpaces, .transient]
         
         let windowController = NSWindowController(window: window)
@@ -130,6 +134,7 @@ class SettingsWindow: NSWindow {
     
     override func close() {
         self.model?.savePreferences()
+//        self.model?.persistAllDigitizerMappings()
         NSApp.stopModal()
         super.close()
     }
@@ -143,68 +148,5 @@ class SettingsWindow: NSWindow {
         if !alreadyOnScreen {
             self.center()
         }
-        
-    }
-}
-
-
-
-class DebugOverlay: NSWindow {
-    
-    var model: TouchUp?
-    static var completion: (()->Void)?
-    
-    static func overlay(model: TouchUp) -> DebugOverlay {
-        let vc = NSHostingController(rootView: DebugView(model:model, closeAction: {
-            DebugOverlay.completion?()
-        }))
-        
-        let window = DebugOverlay(contentRect: .zero,
-                                    styleMask: [.resizable, .miniaturizable, .fullSizeContentView],
-                                    backing: .buffered,
-                                    defer: true,
-                                    screen: nil)
-        
-        window.title = "Touches"
-        window.tabbingMode = .disallowed
-        window.model = model
-        
-        let windowController = NSWindowController(window: window)
-        
-        windowController.contentViewController = vc
-        
-        return window
-    }
-    
-    
-    func makeVisible() {
-        
-        self.setIsVisible(true)
-        self.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        
-        if let controller = self.contentViewController {
-            if let screen = model?.connectedTouchscreen?.systemScreen() {
-                self.level = .screenSaver // prevents notifications from coming in
-                let presentationOptions: NSApplication.PresentationOptions = [.hideDock, .hideMenuBar, .disableProcessSwitching]
-                
-                let options: [NSView.FullScreenModeOptionKey : NSNumber] = [
-                    .fullScreenModeApplicationPresentationOptions : NSNumber(value: presentationOptions.rawValue),
-                    .fullScreenModeWindowLevel : NSNumber(value: kCGNormalWindowLevel),
-                    .fullScreenModeAllScreens : NSNumber(booleanLiteral: false)
-                ]
-                self.setIsVisible(false)
-                controller.view.enterFullScreenMode(screen, withOptions: options)
-            }
-        }
-    }
-    
-    override func close() {
-        if let controller = self.contentViewController {
-            self.level = .normal
-            self.setIsVisible(true)
-            controller.view.exitFullScreenMode(options: nil)
-        }
-        super.close()
     }
 }

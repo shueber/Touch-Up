@@ -1,0 +1,174 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.09844,0.43086,0.50549,1.00000",
+      "display-p3:0.03922,0.12939,0.20398,1.00000"
+    ],
+    "orientation" : {
+      "start" : {
+        "x" : 0.5,
+        "y" : 0
+      },
+      "stop" : {
+        "x" : 0.5,
+        "y" : 0.7
+      }
+    }
+  },
+  "groups" : [
+    {
+      "blur-material" : 0.14,
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "gray:1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "srgb:0.34109,0.45171,0.55520,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Image 2.png",
+          "name" : "Image 2",
+          "opacity" : 0.5,
+          "position" : {
+            "scale" : 0.42,
+            "translation-in-points" : [
+              220.08000000000004,
+              221.14960163919864
+            ]
+          }
+        }
+      ],
+      "name" : "hand",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.6
+      }
+    },
+    {
+      "blend-mode" : "normal",
+      "blur-material" : null,
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "linear-gradient" : [
+                  "display-p3:1.00000,1.00000,1.00000,1.00000",
+                  "display-p3:0.98828,0.93466,0.75955,1.00000"
+                ],
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.5,
+                    "y" : 0.231952079017894
+                  },
+                  "stop" : {
+                    "x" : 0.5,
+                    "y" : 1
+                  }
+                }
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "linear-gradient" : [
+                  "display-p3:1.00000,1.00000,1.00000,1.00000",
+                  "display-p3:0.98828,0.93466,0.75955,1.00000"
+                ],
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.5,
+                    "y" : 0.231952079017894
+                  },
+                  "stop" : {
+                    "x" : 0.5,
+                    "y" : 1
+                  }
+                }
+              }
+            }
+          ],
+          "image-name" : "touch-icon.svg",
+          "name" : "touch-icon",
+          "position" : {
+            "scale" : 1.09,
+            "translation-in-points" : [
+              0.2885507075575333,
+              0.45573745311583025
+            ]
+          }
+        }
+      ],
+      "lighting" : "combined",
+      "name" : "sheep",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 1
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.2
+      }
+    },
+    {
+      "blend-mode" : "normal",
+      "hidden" : false,
+      "layers" : [
+        {
+          "hidden" : false,
+          "image-name" : "background.png",
+          "name" : "background",
+          "position" : {
+            "scale" : 0.85,
+            "translation-in-points" : [
+              15,
+              0
+            ]
+          }
+        }
+      ],
+      "name" : "background",
+      "opacity-specializations" : [
+        {
+          "value" : 0.9
+        },
+        {
+          "appearance" : "dark",
+          "value" : 0
+        },
+        {
+          "appearance" : "tinted",
+          "value" : 0
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.9
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

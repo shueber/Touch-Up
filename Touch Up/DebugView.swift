@@ -13,13 +13,16 @@ struct DebugView: View {
     
     @ObservedObject var model: TouchUp
     
+    let locationID: HIDLocationID?
+    
     let closeAction: ()->Void
     
     var pixelsPerMM: CGFloat
     
-    init(model: TouchUp, closeAction: @escaping ()->Void) {
+    init(model: TouchUp, locationID: HIDLocationID?, closeAction: @escaping ()->Void) {
         self.model = model
-        self.pixelsPerMM = model.touchscreen()?.pixelsPerMM() ?? 30
+        self.locationID = locationID
+        self.pixelsPerMM = model.touchscreen(forLocationID: 0)?.pixelsPerMM() ?? 30
         self.closeAction = closeAction
     }
     
@@ -33,12 +36,20 @@ struct DebugView: View {
             
         case .ended:
             return Color.red
-    
+            
         case .cancelled:
             return Color.orange
             
         default:
             return Color.green
+        }
+    }
+    
+    var allTouches: [TUCTouch] {
+        if let locationID = locationID {
+            return model.touches.filter {$0.locationID == locationID}
+        } else {
+            return model.touches
         }
     }
     
@@ -50,9 +61,7 @@ struct DebugView: View {
                 .frame(maxWidth:.infinity, maxHeight: .infinity)
                 .overlay(GeometryReader { geo in
                     ZStack(alignment: .bottom) {
-                        
-                        
-                        ForEach(model.touches, id:\.uuid) { point in
+                        ForEach(allTouches, id:\.uuid) { point in
                             Circle()
                                 .foregroundColor(colorForPhase(point.phase))
                                 .border(Color.gray, width: point.confidenceFlag ? 5: 0)
@@ -60,7 +69,7 @@ struct DebugView: View {
                                 .frame(width: 16 * pixelsPerMM, height: 16 * pixelsPerMM)
                                 .position(x: geo.size.width * point.location.x,
                                           y: geo.size.height * point.location.y)
-                                
+                            
                             
                             Text("\(point.contactID)")
                                 .font(.system(size: 40))
@@ -68,8 +77,6 @@ struct DebugView: View {
                                           y: geo.size.height * point.location.y)
                             
                         }
-                        
-                        
                     }
                 })
             
@@ -95,13 +102,13 @@ struct DebugView: View {
             .padding(.bottom, 140)
         }
         
-            
+        
     }
 }
 
 struct DebugView_Previews: PreviewProvider {
     static var previews: some View {
-        DebugView(model: TouchUp(), closeAction: {})
+        DebugView(model: TouchUp(), locationID: nil, closeAction: {})
     }
 }
 

@@ -9,12 +9,13 @@
 
 @implementation TUCTouch
 
-- (instancetype)initWithContactID:(NSInteger)contactID {
+- (instancetype)initWithContactID:(NSInteger)contactID locationID:(uint32_t)locationID {
     if (self = [super init]) {
         
         _uuid = [NSUUID UUID];
         
         _contactID = contactID;
+        _locationID = locationID;
         
         _location = CGPointZero;
         

@@ -10,15 +10,15 @@
 #ifndef TUCTouchInputManager_C_h
 #define TUCTouchInputManager_C_h
 
-void TouchInputManagerUpdateTouchPosition(void *self, CFIndex contactID, CGFloat x, CGFloat y, Boolean onSurface, Boolean isValid);
+void TouchInputManagerUpdateTouchPosition(void *self, uint32_t locationID, CFIndex contactID, CGFloat x, CGFloat y, Boolean onSurface, Boolean isValid);
 
-void TouchInputManagerUpdateTouchSize(void *self, CFIndex contactID, CGFloat width, CGFloat height, CGFloat azimuth);
+void TouchInputManagerUpdateTouchSize(void *self, uint32_t locationID, CFIndex contactID, CGFloat width, CGFloat height, CGFloat azimuth);
 
 // called after a full report (no partials in hybrid modes) was handled
-void TouchInputManagerDidProcessReport(void *self);
+void TouchInputManagerDidProcessReport(void *self, uint32_t locationID);
 
-void TouchInputManagerDidConnectTouchscreen(void *self);
+void TouchInputManagerDidConnectTouchscreen(void *self, uint32_t locationID);
 
-void TouchInputManagerDidDisconnectTouchscreen(void *self);
+void TouchInputManagerDidDisconnectTouchscreen(void *self, uint32_t locationID);
 
 #endif /* TUCTouchInputManager_C_h */
