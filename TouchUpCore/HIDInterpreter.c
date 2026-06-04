@@ -290,7 +290,7 @@ void IdentifyElements(HIDDeviceState *device, IOHIDElementRef anyElement, Boolea
     IOHIDElementRef applicationCollection = anyElement;
     IOHIDElementType type = kIOHIDElementTypeOutput;
     
-    while (type != kIOHIDElementCollectionTypeApplication) {
+    while (type != kIOHIDElementTypeCollection) {
         IOHIDElementRef next = IOHIDElementGetParent(applicationCollection);
         if (next) {
             applicationCollection = next;
@@ -299,7 +299,6 @@ void IdentifyElements(HIDDeviceState *device, IOHIDElementRef anyElement, Boolea
             break;
         }
     }
-    
     device->applicationCollectionElement = applicationCollection;
     
     
@@ -416,7 +415,7 @@ void PrintTouchCollection(HIDDeviceState *device, IOHIDElementRef collection) {
         
         
         
-        printf("[%u]\t%#02lx\t%#02lx %s\t %8ld\n", cookie, page, usage, usageDescr,  value);
+        printf("[%ld]\t%#02lx\t%#02lx %s\t %8ld\n", (long)cookie, page, usage, usageDescr,  value);
     }
     printf("\n");
 }
@@ -527,6 +526,40 @@ void DispatchTouches(HIDDeviceState *device) {
 
 
 
+#pragma mark - Exclusive HID Usage (Seizing)
+
+/*!
+ Brings a device's exclusive-open state in line with gSeizeTouchDevices.
+ Seizing routes the device's events to us alone (macOS stops receiving them); releasing returns it to shared use.
+ Idempotent — only opens/closes when the state actually changes.
+ */
+static void ApplySeizeState(HIDDeviceState *state) {
+    if (gSeizeTouchDevices && !state->seized) {
+        IOReturn r = IOHIDDeviceOpen(state->device, kIOHIDOptionsTypeSeizeDevice);
+        if (r == kIOReturnSuccess) {
+            state->seized = true;
+        } else {
+            fprintf(stderr, "Failed to seize device 0x%08x (IOReturn 0x%08x)\n", state->locationID, r);
+        }
+    } else if (!gSeizeTouchDevices && state->seized) {
+        IOHIDDeviceClose(state->device, kIOHIDOptionsTypeSeizeDevice);
+        state->seized = false;
+    }
+}
+
+
+/*!
+ Opt-in exclusive access. When enabled, every accepted touch interface (current andfuture) is seized so macOS no longer receives its events.
+ Applies immediately to all currently-connected touch devices; pen interfaces we never registered stay shared, so the pen keeps working through macOS.
+ */
+void SetTouchDevicesSeized(bool seize) {
+    gSeizeTouchDevices = seize;
+    for (int i = 0; i < gDeviceCount; i++) {
+        if (gDevices[i].isActive) {
+            ApplySeizeState(&gDevices[i]);
+        }
+    }
+}
 
 
 
@@ -577,6 +610,7 @@ static void Handle_InputValueCallback (
         device->areElementRefsSet = TRUE;
     }
     
+    //PrintInput(inIOHIDValueRef);
     IOHIDElementRef elem = IOHIDValueGetElement(inIOHIDValueRef);
     
     Boolean added = IOHIDQueueContainsElement(device->queue, elem);
@@ -626,23 +660,6 @@ static CFIndex CountContactCollections(IOHIDDeviceRef dev) {
 }
 
 
-// Brings a device's exclusive-open state in line with gSeizeTouchDevices. Seizing routes
-// the device's events to us alone (macOS stops receiving them); releasing returns it to
-// shared use. Idempotent — only opens/closes when the state actually changes.
-static void ApplySeizeState(HIDDeviceState *state) {
-    if (gSeizeTouchDevices && !state->seized) {
-        IOReturn r = IOHIDDeviceOpen(state->device, kIOHIDOptionsTypeSeizeDevice);
-        if (r == kIOReturnSuccess) {
-            state->seized = true;
-        } else {
-            fprintf(stderr, "Failed to seize device 0x%08x (IOReturn 0x%08x)\n", state->locationID, r);
-        }
-    } else if (!gSeizeTouchDevices && state->seized) {
-        IOHIDDeviceClose(state->device, kIOHIDOptionsTypeSeizeDevice);
-        state->seized = false;
-    }
-}
-
 
 // Allocates device state and wires up the queue + input callbacks for an interface we've
 // decided to treat as the active touchscreen. The callback context is the device ref so
@@ -674,8 +691,8 @@ static void Handle_DeviceMatchingCallback(
     void *          inSender,        // the IOHIDManagerRef for the new device
     IOHIDDeviceRef  inIOHIDDeviceRef // the new HID device
 ) {
-    printf("%s(context: %p, result: %p, sender: %p, device: %p).\n",
-           __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
+    printf("%s(context: %p, result: %d, sender: %p, device: %p).\n",
+           __PRETTY_FUNCTION__, inContext, inResult, inSender, (void*) inIOHIDDeviceRef);
 
     // read the location ID for this device
     CFNumberRef locationRef = IOHIDDeviceGetProperty(inIOHIDDeviceRef, CFSTR(kIOHIDLocationIDKey));
@@ -720,8 +737,8 @@ static void Handle_RemovalCallback(
                                    void *         inSender,        // the IOHIDManagerRef for the device being removed
                                    IOHIDDeviceRef inIOHIDDeviceRef // the removed HID device
 ) {
-    printf("%s(context: %p, result: %p, sender: %p, device: %p).\n",
-           __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
+    printf("%s(context: %p, result: %d, sender: %p, device: %p).\n",
+           __PRETTY_FUNCTION__, inContext, inResult, inSender, (void*) inIOHIDDeviceRef);
     
     // Only the interface we actually registered as the touchscreen has state. Secondary
     // interfaces we ignored at match time have none, so their removal is a no-op and must
@@ -834,19 +851,5 @@ void CloseHIDManager(void) {
 
     IOHIDManagerUnscheduleFromRunLoop(gHidManager, gRunLoopRef, kCFRunLoopCommonModes);
     IOHIDManagerClose(gHidManager, kIOHIDOptionsTypeNone);
-}
-
-
-// Opt-in exclusive access: when enabled, every accepted touch interface (current and
-// future) is seized so macOS no longer receives its events. Applies immediately to all
-// currently-connected touch devices; pen interfaces we never registered stay shared, so
-// the pen keeps working through macOS.
-void SetTouchDevicesSeized(bool seize) {
-    gSeizeTouchDevices = seize;
-    for (int i = 0; i < gDeviceCount; i++) {
-        if (gDevices[i].isActive) {
-            ApplySeizeState(&gDevices[i]);
-        }
-    }
 }
 
