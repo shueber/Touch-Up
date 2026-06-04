@@ -31,6 +31,7 @@ class TouchUp: NSObject, ObservableObject {
     @Published var isMagnificationEnabled = false
     @Published var isClickWindowToFrontEnabled = false
     @Published var isClickOnLiftEnabled = false
+    @Published var isExclusiveAccessEnabled: Bool = false
 
     @Published var areAdditionalDigitizerRotationSettingsVisible = false
 
@@ -128,6 +129,7 @@ extension TouchUp {
             "isMagnificationEnabled" : true,
             "isClickWindowToFrontEnabled" : false,
             "isClickOnLiftEnabled" : false,
+            "isExclusiveAccessEnabled" : false,
             "areAdditionalDigitizerRotationSettingsVisible" : false
         ])
         
@@ -135,6 +137,7 @@ extension TouchUp {
         doubleClickDistance = defaults.double(forKey: "doubleClickDistance")
         errorResistance = defaults.integer(forKey: "errorResistance")
         ignoreOriginTouches = defaults.bool(forKey: "ignoreOriginTouches")
+        isExclusiveAccessEnabled = defaults.bool(forKey: "isExclusiveAccessEnabled")
 
 
         self.observers = [
@@ -142,7 +145,11 @@ extension TouchUp {
             $holdDuration.assign(to: \.holdDuration, on: touchManager),
             $doubleClickDistance.assign(to: \.doubleClickTolerance, on: touchManager),
             $errorResistance.assign(to: \.errorResistance, on: touchManager),
-            $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager)
+            $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager),
+            
+            $isExclusiveAccessEnabled.sink { [weak touchManager] seized in
+                touchManager?.setTouchscreensSeized(seized)
+            }
         ]
         
         
@@ -406,6 +413,10 @@ extension TouchUp {
         case \.errorResistance:
             return("Error Resistance",
                    "If your touchscreen is really unreliable at reporting touches, increase this slider to make inputs more stable at the cost of higher latency in detecting liftoffs.")
+            
+        case \.isExclusiveAccessEnabled:
+            return("Exclusive Access",
+                   "This option should mitigate undesired mouse events created on some devices.")
         
         case \.areAdditionalDigitizerRotationSettingsVisible:
             return("Digitizer Rotation",

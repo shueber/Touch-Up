@@ -98,6 +98,10 @@ struct SettingsView: View {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.ignoreOriginTouches))
             }
 
+            Toggle(isOn: $model.isExclusiveAccessEnabled) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.isExclusiveAccessEnabled))
+            }
+
             Toggle(isOn: $model.areAdditionalDigitizerRotationSettingsVisible) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.areAdditionalDigitizerRotationSettingsVisible))
             }
