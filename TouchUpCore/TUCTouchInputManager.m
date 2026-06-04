@@ -140,12 +140,14 @@
     }
     
     if(touch.previousPhase != NSTouchPhaseEnded && !isNewTouch) {
-        // update to an existing touch... check if stationary or not
-        CGFloat digitizerRelDistance = sqrt(pow(touch.location.x - touch.previousLocation.x, 2) + pow(touch.location.y - touch.previousLocation.y, 2));
-        CGFloat screenSize = [self touchscreenForLocationID:locationID].nativePhysicalSize.width;
-        //TODO: - Make customizable in settings?
-        BOOL isStationary = (digitizerRelDistance * screenSize) < 0.1;
-//        BOOL isStationary = CGPointEqualToPoint(touch.location, touch.previousLocation);
+        // update to an existing touch... check if stationary or not.
+        // Convert each axis to mm first (x scales with the panel width, y with its height),
+        // then take the distance — otherwise a non-square screen distorts the threshold per axis.
+        CGSize physicalSize = [self touchscreenForLocationID:locationID].nativePhysicalSize;
+        CGFloat dxMM = (touch.location.x - touch.previousLocation.x) * physicalSize.width;
+        CGFloat dyMM = (touch.location.y - touch.previousLocation.y) * physicalSize.height;
+        CGFloat movedDistanceMM = sqrt(dxMM * dxMM + dyMM * dyMM);
+        BOOL isStationary = movedDistanceMM < self.stationaryThreshold;
         
         if (touch.uuid == self.cursorTouch.uuid) {
             if (!isStationary) {
@@ -713,6 +715,7 @@
         
         self.doubleClickTolerance = 5;
         self.holdDuration = 0.08;
+        self.stationaryThreshold = 0.1;
         self.errorResistance = 0;
         
         self.ignoreOriginTouches = NO;

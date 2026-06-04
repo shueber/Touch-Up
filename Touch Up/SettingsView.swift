@@ -94,6 +94,10 @@ struct SettingsView: View {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.errorResistance))
             }
             
+            Slider(value: $model.stationaryThreshold, in: 0...2, step: 0.1) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.stationaryThreshold))
+            }
+            
             Toggle(isOn: $model.ignoreOriginTouches) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.ignoreOriginTouches))
             }

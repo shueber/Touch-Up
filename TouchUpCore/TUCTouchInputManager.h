@@ -38,6 +38,13 @@ NS_ASSUME_NONNULL_BEGIN
 @property NSTimeInterval holdDuration;
 
 /**
+ The maximum distance in mm a touch may travel between two reports while still counting as
+ stationary. Larger values tolerate more finger jitter before a touch is treated as moving
+ (which is what disqualifies a tap and starts a drag).
+ */
+@property CGFloat stationaryThreshold;
+
+/**
  If a touch is no longer reported by the screen, wait for this number of incoming reports bevore deleting it from the touch set.
  */
 @property NSInteger errorResistance;
