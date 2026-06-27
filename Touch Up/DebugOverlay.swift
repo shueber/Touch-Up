@@ -14,6 +14,7 @@ import TouchUpCore
 class DebugOverlay: NSWindow {
     
     var model: TouchUp?
+    var publishingStateBeforeOverlay: Bool?
     static var completion: (()->Void)?
     
     private static func constructView(model: TouchUp, locationID: HIDLocationID?) -> DebugView {
@@ -71,6 +72,11 @@ class DebugOverlay: NSWindow {
     }
     
     override func close() {
+        self.model?.calibrationBypassLocationID = nil
+        if let publishingStateBeforeOverlay {
+            self.model?.isPublishingMouseEventsEnabled = publishingStateBeforeOverlay
+            self.publishingStateBeforeOverlay = nil
+        }
         if let controller = self.contentViewController {
             self.level = .normal
             self.setIsVisible(true)

@@ -37,6 +37,10 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (nullable TUCScreen *)touchscreenForLocationID:(uint32_t)locationID;
 
+@optional
+- (CGPoint)calibratedRelativePoint:(CGPoint)point forLocationID:(uint32_t)locationID;
+
+@required
 /**
  Used to customize which mouse events are posted by the input manager.
  */

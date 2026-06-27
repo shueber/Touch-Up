@@ -40,7 +40,6 @@ struct SettingsView: View {
     
     var gestureSettings: some View {
         Group {
-            
             let mode_ = Binding {
                 model.isClickOnLiftEnabled ? 2 : (model.isScrollingWithOneFingerEnabled ? 0 : 1)
             } set: { value in
@@ -55,11 +54,13 @@ struct SettingsView: View {
             } label: {
                 SettingsExplanationLabel(labels: ("On Finger Drag", "Specify which action should occur when dragging one finger on the touch screen."))
             }
+            .disabled(model.isWindowsTouchModeEnabled)
 
             
             Toggle(isOn: $model.isSecondaryClickEnabled) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.isSecondaryClickEnabled))
             }
+            .disabled(model.isWindowsTouchModeEnabled)
             
             Toggle(isOn: $model.isMagnificationEnabled) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.isMagnificationEnabled))
@@ -67,6 +68,11 @@ struct SettingsView: View {
             
             Toggle(isOn: $model.isClickWindowToFrontEnabled) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.isClickWindowToFrontEnabled))
+            }
+            .disabled(model.isWindowsTouchModeEnabled)
+
+            Toggle(isOn: $model.isWindowsTouchModeEnabled) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.isWindowsTouchModeEnabled))
             }
         }
     }
@@ -81,6 +87,11 @@ struct SettingsView: View {
             Slider(value: $model.doubleClickDistance, in: 0...8, step: 1) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.doubleClickDistance))
             }
+
+            Slider(value: $model.windowsTouchModeSingleFingerDistance, in: 0...30, step: 1) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.windowsTouchModeSingleFingerDistance))
+            }
+            .disabled(!model.isWindowsTouchModeEnabled)
         }
     }
     
@@ -96,6 +107,10 @@ struct SettingsView: View {
             
             Toggle(isOn: $model.ignoreOriginTouches) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.ignoreOriginTouches))
+            }
+
+            Toggle(isOn: $model.isTouchEventLoggingEnabled) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.isTouchEventLoggingEnabled))
             }
 
             Toggle(isOn: $model.areAdditionalDigitizerRotationSettingsVisible) {

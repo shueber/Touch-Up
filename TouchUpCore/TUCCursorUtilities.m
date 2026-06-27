@@ -56,6 +56,9 @@
 - (void)moveCursorTo:(CGPoint)aLocation {
     [self cancelMomentumScroll];
     [self stopDraggingCursor];
+    if (self.logCursorEvents) {
+        NSLog(@"TouchUp cursor move location=%@", NSStringFromPoint(aLocation));
+    }
     
     CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, aLocation, kCGMouseButtonLeft);
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, 0);
@@ -87,6 +90,12 @@
  */
 - (void)performClickAt:(CGPoint)aLocation {
     [self updateCursorClickCountWithLocation:aLocation];
+    if (self.logCursorEvents) {
+        NSLog(@"TouchUp cursor click location=%@ clickCount=%ld tolerance=%.2f",
+              NSStringFromPoint(aLocation),
+              (long)self.cursorClickCount,
+              self.doubleClickTolerance);
+    }
     
     CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, aLocation, kCGMouseButtonLeft);
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, self.cursorClickCount);
@@ -109,8 +118,8 @@
         self.cursorClickCount = 1;
     }
     
-    else if ((aLocation.x - self.locationOfLastClick.x) > self.doubleClickTolerance
-             && (aLocation.y - self.locationOfLastClick.y) > self.doubleClickTolerance) {
+    else if (hypot(aLocation.x - self.locationOfLastClick.x,
+                   aLocation.y - self.locationOfLastClick.y) > self.doubleClickTolerance) {
         // touch is too far away
         self.cursorClickCount = 1;
     }
@@ -118,6 +127,9 @@
 
 
 - (void)performSecondaryClickAt:(CGPoint)aLocation {
+    if (self.logCursorEvents) {
+        NSLog(@"TouchUp cursor secondaryClick location=%@", NSStringFromPoint(aLocation));
+    }
     CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventRightMouseDown, aLocation, kCGMouseButtonRight);
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
     CGEventPost(kCGHIDEventTap, event);
@@ -136,6 +148,12 @@
     
     
     if (self.isLeftMouseDown) {
+        if (self.logCursorEvents) {
+            NSLog(@"TouchUp cursor drag location=%@ phase=%lu clickCount=%ld",
+                  NSStringFromPoint(aLocation),
+                  (unsigned long)phase,
+                  (long)self.cursorClickCount);
+        }
         CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDragged, aLocation, kCGMouseButtonLeft);
         CGEventSetIntegerValueField(event, kCGMouseEventClickState, self.cursorClickCount);
         CGEventPost(kCGHIDEventTap, event);
@@ -144,6 +162,13 @@
     } else {
         [self moveCursorTo:aLocation];
         [self updateCursorClickCountWithLocation:aLocation];
+        if (self.logCursorEvents) {
+            NSLog(@"TouchUp cursor dragStart location=%@ phase=%lu clickCount=%ld tolerance=%.2f",
+                  NSStringFromPoint(aLocation),
+                  (unsigned long)phase,
+                  (long)self.cursorClickCount,
+                  self.doubleClickTolerance);
+        }
         CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, aLocation, kCGMouseButtonLeft);
         CGEventSetIntegerValueField(event, kCGMouseEventClickState, self.cursorClickCount);
         CGEventPost(kCGHIDEventTap, event);
@@ -169,6 +194,11 @@
 
 - (void)scroll:(CGPoint)translation phase:(NSTouchPhase)phase {
     [self stopDraggingCursor];
+    if (self.logCursorEvents) {
+        NSLog(@"TouchUp cursor scroll translation=%@ phase=%lu",
+              NSStringFromPoint(translation),
+              (unsigned long)phase);
+    }
     
     CGEventRef event = CGEventCreateScrollWheelEvent2(NULL, kCGScrollEventUnitPixel, 2, translation.y, translation.x, 0);
     

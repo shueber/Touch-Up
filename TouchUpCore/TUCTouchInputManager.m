@@ -19,16 +19,28 @@
 
 @property BOOL cursorTouchQualifiedForTap; // if the cursor entered moving state once it can no longer be interpreted as tap
 @property BOOL cursorTouchDidHold; //
+@property BOOL cursorTouchDidDrag;
 @property (strong) NSDate *cursorTouchStationarySinceDate;
+@property CGPoint cursorTouchInitialLocation;
+@property BOOL suppressCursorInputUntilAllTouchesEnd;
 
 @property CGFloat pinchDistance;
 
 @property TUCCursorGesture identifiedMultitouchGesture;
 
+- (NSArray<TUCTouch *> *)windowsGestureTouchesFromTouches:(NSArray<TUCTouch *> *)touches cursorTouch:(TUCTouch *)cursorTouch;
+- (CGFloat)distanceInMillimetersBetweenRelativePoint:(CGPoint)p1 and:(CGPoint)p2 locationID:(uint32_t)locationID;
+
 @end
 
 
 @implementation TUCTouchInputManager
+
+- (void)setLogTouchEvents:(BOOL)logTouchEvents {
+    _logTouchEvents = logTouchEvents;
+    [TUCCursorUtilities sharedInstance].logCursorEvents = logTouchEvents;
+    SetHIDEventLogging(logTouchEvents);
+}
 
 #pragma mark   Start & Stop
 
@@ -103,6 +115,17 @@
 }
 
 
+- (void)clearCursorTouchState {
+    self.cursorTouch = nil;
+    self.gestureAdditionalTouch = nil;
+    self.cursorTouchQualifiedForTap = NO;
+    self.cursorTouchDidHold = NO;
+    self.cursorTouchDidDrag = NO;
+    self.cursorTouchStationarySinceDate = nil;
+    self.suppressCursorInputUntilAllTouchesEnd = NO;
+}
+
+
 
 /**
  Most important event handling callback: it posts the events to the system where the touches need to go
@@ -114,8 +137,29 @@
         return;
     }
     
-    CGPoint point = [self convertDigitizerPointToRelativeScreenPoint:digitizerPoint locationID:locationID];
+    CGPoint convertedPoint = [self convertDigitizerPointToRelativeScreenPoint:digitizerPoint locationID:locationID];
+    CGPoint point = [self calibratedRelativePointForPoint:convertedPoint locationID:locationID];
+    if (self.logTouchEvents) {
+        NSLog(@"TouchUp touch input locationID=0x%08x contact=%ld raw=%@ converted=%@ calibrated=%@ onSurface=%d confidence=%d",
+              locationID,
+              (long)contactID,
+              NSStringFromPoint(digitizerPoint),
+              NSStringFromPoint(convertedPoint),
+              NSStringFromPoint(point),
+              isOnSurface,
+              confidenceFlag);
+    }
     
+    TUCTouch *existingActiveTouch = [self findTouchWithID:contactID locationID:locationID includingPastTouches:NO];
+    if (!isOnSurface && existingActiveTouch == nil) {
+        if (self.logTouchEvents) {
+            NSLog(@"TouchUp ignored stale lift locationID=0x%08x contact=%ld",
+                  locationID,
+                  (long)contactID);
+        }
+        return;
+    }
+
     BOOL isNewTouch = NO;
     TUCTouch *touch = [self obtainTouchWithID:contactID locationID:locationID isNew:&isNewTouch];
     
@@ -123,7 +167,9 @@
         self.cursorTouch = touch;
         self.cursorTouchQualifiedForTap = YES;
         self.cursorTouchDidHold = NO;
+        self.cursorTouchDidDrag = NO;
         self.cursorTouchStationarySinceDate = nil;
+        self.cursorTouchInitialLocation = point;
     }
     
     [touch setLocation: point];
@@ -149,8 +195,23 @@
         
         if (touch.uuid == self.cursorTouch.uuid) {
             if (!isStationary) {
-                self.cursorTouchQualifiedForTap = NO;
-                self.cursorTouchStationarySinceDate = nil;
+                CGFloat tapTravel = [self distanceInMillimetersBetweenRelativePoint:touch.location
+                                                                                and:self.cursorTouchInitialLocation
+                                                                         locationID:locationID];
+                BOOL exceededTapMovementTolerance = tapTravel > self.tapMovementTolerance;
+                if (!self.usesWindowsTouchMode || exceededTapMovementTolerance) {
+                    self.cursorTouchQualifiedForTap = NO;
+                    self.cursorTouchStationarySinceDate = nil;
+                }
+                if (self.usesWindowsTouchMode && exceededTapMovementTolerance) {
+                    self.cursorTouchDidDrag = YES;
+                }
+                if (self.logTouchEvents && self.usesWindowsTouchMode) {
+                    NSLog(@"TouchUp tap candidate travel=%.2fmm threshold=%.2fmm qualified=%d",
+                          tapTravel,
+                          self.tapMovementTolerance,
+                          self.cursorTouchQualifiedForTap);
+                }
                 
             } else if (touch.phase !=  NSTouchPhaseStationary) {
                 self.cursorTouchStationarySinceDate = [NSDate date];
@@ -193,6 +254,10 @@
     
     NSArray<TUCTouch *> *touches = [[self activeTouches] allObjects];
     NSTouchPhase phase = cursorTouch.phase;
+
+    if ([self processWindowsMultitouchForTouches:touches cursorTouch:cursorTouch]) {
+        return;
+    }
     
     
     if (phase == NSTouchPhaseBegan) {
@@ -206,12 +271,17 @@
         if (self.cursorTouchStationarySinceDate != nil) {
             holdDuration = [[NSDate date] timeIntervalSinceDate:self.cursorTouchStationarySinceDate];
         }
-        if (self.cursorTouchQualifiedForTap && holdDuration > self.holdDuration) {
+        if (self.cursorTouchQualifiedForTap && !self.cursorTouchDidHold && holdDuration > self.holdDuration) {
             // the user left the finger on the screen for the min duration required to produce a hold
             self.cursorTouchDidHold = YES;
+            if (self.usesWindowsTouchMode) {
+                self.cursorTouchQualifiedForTap = NO;
+            }
         }
         
-        [self checkForSecondaryClick];
+        if (!self.usesWindowsTouchMode) {
+            [self checkForSecondaryClick];
+        }
         
         return;
     }
@@ -220,7 +290,11 @@
     else if (phase == NSTouchPhaseEnded) {
         if (self.identifiedMultitouchGesture == _TUCCursorGestureNone ) {
             if (self.cursorTouchDidHold) {
-                [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
+                if (self.usesWindowsTouchMode && !self.cursorTouchDidDrag) {
+                    [self performMouseEventForGesture:TUCCursorGestureLongPress];
+                } else {
+                    [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
+                }
             } else if (!self.cursorTouchQualifiedForTap) {
                 [self performMouseEventForGesture:TUCCursorGestureDrag];
             }
@@ -235,6 +309,8 @@
                 [self performMouseEventForGesture:self.identifiedMultitouchGesture];
             }
         }
+
+        [self clearCursorTouchState];
         
         return;
     }
@@ -242,14 +318,15 @@
     
     else if (phase == NSTouchPhaseCancelled) {
         [self stopCurrentGesture];
+        [self clearCursorTouchState];
         return;
     }
     
-    if ([self checkForSecondaryClick]) {
+    if (!self.usesWindowsTouchMode && [self checkForSecondaryClick]) {
         return;
     }
     
-    if ([touches count] == 2 && [touches containsObject: cursorTouch]) {
+    if (!self.usesWindowsTouchMode && [touches count] == 2 && [touches containsObject: cursorTouch]) {
         // check if we need to initiate two finger drag, pinch, ...
         if (self.identifiedMultitouchGesture == _TUCCursorGestureNone ) {
             
@@ -263,17 +340,14 @@
             if (self.gestureAdditionalTouch.isActive) {
                 CGPoint trajectoryA = [cursorTouch trajectorySign];
                 CGPoint trajectoryB = [otherTouch trajectorySign];
-                
-                
+
+
                 if (   !CGPointEqualToPoint(trajectoryA, CGPointZero)
                     && !CGPointEqualToPoint(trajectoryB, CGPointZero)) {
-                    
+
                     if (!CGPointEqualToPoint(trajectoryA, trajectoryB)) {
                         self.identifiedMultitouchGesture = TUCCursorGesturePinch;
                     }
-                    //                    else {
-                    //                        self.identifiedMultitouchGesture = TUCCursorGestureTwoFingerDrag;
-                    //                    }
                 }
                 
             } else {
@@ -299,10 +373,159 @@
     
     
     if (self.cursorTouchDidHold) {
-        [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
+        if (!self.usesWindowsTouchMode || self.cursorTouchDidDrag) {
+            [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
+        }
+    } else if (self.usesWindowsTouchMode && self.cursorTouchQualifiedForTap) {
+        [self performMouseEventForGesture:TUCCursorGestureTouchDown];
     } else {
         [self performMouseEventForGesture:TUCCursorGestureDrag];
     }
+}
+
+
+- (BOOL)processWindowsMultitouchForTouches:(NSArray<TUCTouch *> *)touches cursorTouch:(TUCTouch *)cursorTouch {
+    if (!self.usesWindowsTouchMode) {
+        return NO;
+    }
+
+    NSArray<TUCTouch *> *gestureTouches = [self windowsGestureTouchesFromTouches:touches cursorTouch:cursorTouch];
+    NSUInteger activeTouchCount = [gestureTouches count];
+    if (activeTouchCount > 1) {
+        self.suppressCursorInputUntilAllTouchesEnd = YES;
+        self.cursorTouchQualifiedForTap = NO;
+        self.cursorTouchDidDrag = YES;
+        [[TUCCursorUtilities sharedInstance] stopDraggingCursor];
+    }
+
+    if (!self.suppressCursorInputUntilAllTouchesEnd) {
+        return NO;
+    }
+
+    if (activeTouchCount == 0) {
+        [self stopCurrentGesture];
+        [self clearCursorTouchState];
+        return YES;
+    }
+
+    if (activeTouchCount != 2 || ![gestureTouches containsObject:cursorTouch]) {
+        [self stopCurrentGesture];
+        return YES;
+    }
+
+    TUCTouch *otherTouch = gestureTouches[1];
+    if (otherTouch.uuid == cursorTouch.uuid) {
+        otherTouch = gestureTouches[0];
+    }
+
+    self.gestureAdditionalTouch = otherTouch;
+
+    BOOL cursorMoved = [self touchMovedInCurrentFrame:cursorTouch];
+    BOOL otherMoved = [self touchMovedInCurrentFrame:otherTouch];
+    BOOL shouldScroll = cursorMoved || otherMoved;
+
+    if (self.logTouchEvents) {
+        NSLog(@"TouchUp windows multitouch active=%lu cursorPhase=%@ otherPhase=%@ cursorMoved=%d otherMoved=%d",
+              (unsigned long)activeTouchCount,
+              [self stringForPhase:cursorTouch.phase],
+              [self stringForPhase:otherTouch.phase],
+              cursorMoved,
+              otherMoved);
+    }
+
+    if (shouldScroll) {
+        self.identifiedMultitouchGesture = TUCCursorGestureTwoFingerDrag;
+        [self performMouseEventForGesture:TUCCursorGestureTwoFingerDrag];
+    }
+
+    return YES;
+}
+
+
+- (NSArray<TUCTouch *> *)windowsGestureTouchesFromTouches:(NSArray<TUCTouch *> *)touches cursorTouch:(TUCTouch *)cursorTouch {
+    if (self.windowsTouchModeSingleFingerDistance <= 0 ||
+        cursorTouch == nil ||
+        ![touches containsObject:cursorTouch]) {
+        return touches;
+    }
+
+    NSMutableArray<TUCTouch *> *gestureTouches = [NSMutableArray arrayWithObject:cursorTouch];
+
+    for (TUCTouch *touch in touches) {
+        if (touch.uuid == cursorTouch.uuid) {
+            continue;
+        }
+
+        if (touch.locationID != cursorTouch.locationID) {
+            [gestureTouches addObject:touch];
+            continue;
+        }
+
+        CGFloat distance = [self distanceInMillimetersBetweenRelativePoint:touch.location
+                                                                       and:cursorTouch.location
+                                                                locationID:cursorTouch.locationID];
+        if (distance < self.windowsTouchModeSingleFingerDistance) {
+            if (self.logTouchEvents) {
+                NSLog(@"TouchUp windows multitouch treating close contact as one finger distance=%.2f threshold=%.2f",
+                      distance,
+                      self.windowsTouchModeSingleFingerDistance);
+            }
+            continue;
+        }
+
+        [gestureTouches addObject:touch];
+    }
+
+    return gestureTouches;
+}
+
+
+- (BOOL)touchMovedInCurrentFrame:(TUCTouch *)touch {
+    if (touch == nil || touch.phase != NSTouchPhaseMoved) {
+        return NO;
+    }
+    NSInteger currentFrameID = [self currentFrameIDForLocationID:touch.locationID];
+    // didProcessReportForLocationID advances the frame before cursor processing.
+    return touch.lastUpdated == currentFrameID || touch.lastUpdated + 1 == currentFrameID;
+}
+
+
+- (CGPoint)screenTranslationForTouch:(TUCTouch *)touch {
+    CGPoint currentLocation = [self convertScreenPointRelativeToAbsolute:touch.location locationID:touch.locationID];
+    CGPoint previousLocation = [self convertScreenPointRelativeToAbsolute:touch.previousLocation locationID:touch.locationID];
+    return CGPointMake(currentLocation.x - previousLocation.x,
+                       currentLocation.y - previousLocation.y);
+}
+
+
+- (CGPoint)scrollTranslationForGesture:(TUCCursorGesture)gesture touch:(TUCTouch *)touch screenLocation:(CGPoint)screenLocation {
+    if (self.usesWindowsTouchMode &&
+        gesture == TUCCursorGestureTwoFingerDrag &&
+        self.gestureAdditionalTouch != nil) {
+        CGPoint translation = CGPointZero;
+        CGFloat contributingTouches = 0;
+        NSArray<TUCTouch *> *scrollTouches = @[touch, self.gestureAdditionalTouch];
+
+        for (TUCTouch *scrollTouch in scrollTouches) {
+            if (![self touchMovedInCurrentFrame:scrollTouch]) {
+                continue;
+            }
+
+            CGPoint touchTranslation = [self screenTranslationForTouch:scrollTouch];
+            translation.x += touchTranslation.x;
+            translation.y += touchTranslation.y;
+            contributingTouches += 1;
+        }
+
+        if (contributingTouches > 0) {
+            return CGPointMake(translation.x / contributingTouches,
+                               translation.y / contributingTouches);
+        }
+    }
+
+    CGPoint previousLocation = [self convertScreenPointRelativeToAbsolute:touch.previousLocation locationID:touch.locationID];
+    return CGPointMake(screenLocation.x - previousLocation.x,
+                       screenLocation.y - previousLocation.y);
 }
 
 
@@ -350,6 +573,17 @@
     
     CGFloat doubleClickSpan = self.doubleClickTolerance * [[self touchscreenForLocationID:touch.locationID] pixelsPerMM];
     [[TUCCursorUtilities sharedInstance] setDoubleClickTolerance:doubleClickSpan];
+
+    if (self.logTouchEvents) {
+        NSLog(@"TouchUp gesture=%@ action=%@ phase=%@ locationID=0x%08x rel=%@ abs=%@ clickZone=%.2f",
+              [self stringForGesture:gesture],
+              [self stringForAction:action],
+              [self stringForPhase:touch.phase],
+              touch.locationID,
+              NSStringFromPoint(touch.location),
+              NSStringFromPoint(screenLocation),
+              doubleClickSpan);
+    }
     
     switch (action) {
         case TUCCursorActionNone:
@@ -387,9 +621,7 @@
             break;
             
         case TUCCursorActionScroll: {
-            CGPoint prevLocation = [self convertScreenPointRelativeToAbsolute:touch.previousLocation locationID:touch.locationID];
-            CGPoint translation = CGPointMake(screenLocation.x - prevLocation.x,
-                                              screenLocation.y - prevLocation.y);
+            CGPoint translation = [self scrollTranslationForGesture:gesture touch:touch screenLocation:screenLocation];
             [utils scroll:translation phase:touch.phase];
             
             break; }
@@ -449,6 +681,14 @@
     CGFloat dy = p1.y - p2.y;
     
     return sqrt( pow(dx, 2) + pow(dy, 2) );
+}
+
+
+- (CGFloat)distanceInMillimetersBetweenRelativePoint:(CGPoint)p1 and:(CGPoint)p2 locationID:(uint32_t)locationID {
+    TUCScreen *screen = [self touchscreenForLocationID:locationID];
+    CGFloat dx = (p1.x - p2.x) * screen.nativePhysicalSize.width;
+    CGFloat dy = (p1.y - p2.y) * screen.nativePhysicalSize.height;
+    return hypot(dx, dy);
 }
 
 
@@ -567,6 +807,18 @@
     // Then account for any letterboxing when the content doesn't fill the panel (mirroring
     // a differently-shaped display). A no-op when the aspect ratios already match.
     return [screen convertGlassPointToContentPoint:rotated];
+}
+
+
+- (CGPoint)calibratedRelativePointForPoint:(CGPoint)point locationID:(uint32_t)locationID {
+    CGPoint result = point;
+    if (self.delegate != nil && [self.delegate respondsToSelector:@selector(calibratedRelativePoint:forLocationID:)]) {
+        result = [self.delegate calibratedRelativePoint:point forLocationID:locationID];
+    }
+
+    result.x = MAX(0.0, MIN(1.0, result.x));
+    result.y = MAX(0.0, MIN(1.0, result.y));
+    return result;
 }
 
 
@@ -712,10 +964,14 @@
         self.identifiedMultitouchGesture = _TUCCursorGestureNone;
         
         self.doubleClickTolerance = 5;
+        self.tapMovementTolerance = 3;
+        self.windowsTouchModeSingleFingerDistance = 0;
         self.holdDuration = 0.08;
         self.errorResistance = 0;
         
         self.ignoreOriginTouches = NO;
+        self.usesWindowsTouchMode = NO;
+        self.logTouchEvents = NO;
     }
     return self;
 }
@@ -740,6 +996,48 @@
 - (void)triggerSystemAccessibilityAccessAlert {
     CGPoint loc = [[TUCCursorUtilities sharedInstance] currentCursorLocation];
     [[TUCCursorUtilities sharedInstance] moveCursorTo:loc];
+}
+
+
+#pragma mark - Logging
+
+- (NSString *)stringForPhase:(NSTouchPhase)phase {
+    switch (phase) {
+        case NSTouchPhaseBegan: return @"began";
+        case NSTouchPhaseMoved: return @"moved";
+        case NSTouchPhaseStationary: return @"stationary";
+        case NSTouchPhaseEnded: return @"ended";
+        case NSTouchPhaseCancelled: return @"cancelled";
+        default: return [NSString stringWithFormat:@"phase-%lu", (unsigned long)phase];
+    }
+}
+
+- (NSString *)stringForGesture:(TUCCursorGesture)gesture {
+    switch (gesture) {
+        case TUCCursorGestureTouchDown: return @"touchDown";
+        case TUCCursorGestureTap: return @"tap";
+        case TUCCursorGestureLongPress: return @"longPress";
+        case TUCCursorGestureDrag: return @"drag";
+        case TUCCursorGestureHoldAndDrag: return @"holdAndDrag";
+        case TUCCursorGestureTapSecondFinger: return @"tapSecondFinger";
+        case TUCCursorGestureTwoFingerDrag: return @"twoFingerDrag";
+        case TUCCursorGesturePinch: return @"pinch";
+        case _TUCCursorGestureNone: return @"none";
+    }
+}
+
+- (NSString *)stringForAction:(TUCCursorAction)action {
+    switch (action) {
+        case TUCCursorActionNone: return @"none";
+        case TUCCursorActionMove: return @"move";
+        case TUCCursorActionMoveClickIfNeeded: return @"moveClickIfNeeded";
+        case TUCCursorActionPointAndClick: return @"pointAndClick";
+        case TUCCursorActionDrag: return @"drag";
+        case TUCCursorActionClick: return @"click";
+        case TUCCursorActionSecondaryClick: return @"secondaryClick";
+        case TUCCursorActionScroll: return @"scroll";
+        case TUCCursorActionMagnify: return @"magnify";
+    }
 }
 
 

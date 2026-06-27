@@ -15,6 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 
 @property CGFloat doubleClickTolerance;
+@property BOOL logCursorEvents;
 
 - (CGPoint)currentCursorLocation;
 

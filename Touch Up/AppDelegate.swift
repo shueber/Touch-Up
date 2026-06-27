@@ -22,6 +22,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @IBOutlet weak var activationMenuItem: NSMenuItem!
     
     var observers = [AnyCancellable]()
+    private var settingsWindowWasVisibleBeforeDebugOverlay = false
     
     
     
@@ -93,16 +94,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func showDebugOverlay(on screen: TUCScreen? = nil, digitizer locationID: HIDLocationID? = nil) {
-        let preState = self.model.isPublishingMouseEventsEnabled
+        guard let screen = screen ?? TUCScreen.allScreens().first else { return }
+
+        settingsWindowWasVisibleBeforeDebugOverlay = settingsWindow.isVisible
+        if settingsWindowWasVisibleBeforeDebugOverlay {
+            settingsWindow.orderOut(nil)
+        }
+
+        self.debugOverlay.publishingStateBeforeOverlay = self.model.isPublishingMouseEventsEnabled
         self.model.isPublishingMouseEventsEnabled = false
         DebugOverlay.completion = {[unowned self] in
             self.debugOverlay.close()
-            self.model.isPublishingMouseEventsEnabled = preState
+            if self.settingsWindowWasVisibleBeforeDebugOverlay {
+                self.settingsWindow.makeVisible()
+                self.settingsWindowWasVisibleBeforeDebugOverlay = false
+            }
         }
-        
-        if let screen = screen ?? TUCScreen.allScreens().first {
-            self.debugOverlay.makeVisible(onScreen: screen, digitizerLocationID: locationID)
-        }
+
+        self.debugOverlay.makeVisible(onScreen: screen, digitizerLocationID: locationID)
     }
 }
 
