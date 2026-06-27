@@ -23,13 +23,16 @@ class TouchUp: NSObject, ObservableObject {
     
     @Published var holdDuration: TimeInterval = 0.1
     @Published var doubleClickDistance: CGFloat = 3 //mm
+    @Published var windowsTouchModeSingleFingerDistance: CGFloat = 0
     @Published var errorResistance: NSInteger = 0 // num of Reports to wait before cancelling a touch
     @Published var ignoreOriginTouches: Bool = false
+    @Published var isTouchEventLoggingEnabled = false
     
     @Published var isScrollingWithOneFingerEnabled = false
     @Published var isSecondaryClickEnabled = false
     @Published var isMagnificationEnabled = false
     @Published var isClickWindowToFrontEnabled = false
+    @Published var isWindowsTouchModeEnabled = false
     @Published var isClickOnLiftEnabled = false
 
     @Published var areAdditionalDigitizerRotationSettingsVisible = false
@@ -49,6 +52,9 @@ class TouchUp: NSObject, ObservableObject {
     /// `CGDirectDisplayID` of the screen that connected most recently. Used as the implicit
     /// fallback target when a digitizer has no (matching) stored screen identity.
     var idOfLastAddedScreen: UInt?
+
+    /// Temporarily bypasses saved calibration while a digitizer is being recalibrated.
+    var calibrationBypassLocationID: HIDLocationID?
 
 
     @Published var isAccessibilityAccessGranted = false
@@ -120,29 +126,37 @@ extension TouchUp {
         defaults.register(defaults: [
             "holdDuration" : 0.1,
             "doubleClickDistance" : 8,
+            "windowsTouchModeSingleFingerDistance" : 0,
             "errorResistance" : 4,
             "ignoreOriginTouches" : true,
+            "isTouchEventLoggingEnabled" : false,
 
             "isScrollingWithOneFingerEnabled" : true,
             "isSecondaryClickEnabled" : true,
             "isMagnificationEnabled" : true,
             "isClickWindowToFrontEnabled" : false,
+            "isWindowsTouchModeEnabled" : false,
             "isClickOnLiftEnabled" : false,
             "areAdditionalDigitizerRotationSettingsVisible" : false
         ])
         
         holdDuration = defaults.double(forKey: "holdDuration")
         doubleClickDistance = defaults.double(forKey: "doubleClickDistance")
+        windowsTouchModeSingleFingerDistance = defaults.double(forKey: "windowsTouchModeSingleFingerDistance")
         errorResistance = defaults.integer(forKey: "errorResistance")
         ignoreOriginTouches = defaults.bool(forKey: "ignoreOriginTouches")
+        isTouchEventLoggingEnabled = defaults.bool(forKey: "isTouchEventLoggingEnabled")
 
 
         self.observers = [
             $isPublishingMouseEventsEnabled.assign(to: \.postMouseEvents, on: touchManager),
             $holdDuration.assign(to: \.holdDuration, on: touchManager),
             $doubleClickDistance.assign(to: \.doubleClickTolerance, on: touchManager),
+            $windowsTouchModeSingleFingerDistance.assign(to: \.windowsTouchModeSingleFingerDistance, on: touchManager),
             $errorResistance.assign(to: \.errorResistance, on: touchManager),
-            $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager)
+            $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager),
+            $isTouchEventLoggingEnabled.assign(to: \.logTouchEvents, on: touchManager),
+            $isWindowsTouchModeEnabled.assign(to: \.usesWindowsTouchMode, on: touchManager)
         ]
         
         
@@ -151,6 +165,7 @@ extension TouchUp {
         isSecondaryClickEnabled = defaults.bool(forKey: "isSecondaryClickEnabled")
         isMagnificationEnabled = defaults.bool(forKey: "isMagnificationEnabled")
         isClickWindowToFrontEnabled = defaults.bool(forKey: "isClickWindowToFrontEnabled")
+        isWindowsTouchModeEnabled = defaults.bool(forKey: "isWindowsTouchModeEnabled")
         isClickOnLiftEnabled = defaults.bool(forKey: "isClickOnLiftEnabled")
         areAdditionalDigitizerRotationSettingsVisible = defaults.bool(forKey: "areAdditionalDigitizerRotationSettingsVisible")
     }
@@ -161,13 +176,16 @@ extension TouchUp {
         
         defaults.set(holdDuration, forKey: "holdDuration")
         defaults.set(doubleClickDistance, forKey: "doubleClickDistance")
-        defaults.set(errorResistance, forKey: "$errorResistance")
+        defaults.set(windowsTouchModeSingleFingerDistance, forKey: "windowsTouchModeSingleFingerDistance")
+        defaults.set(errorResistance, forKey: "errorResistance")
         defaults.set(ignoreOriginTouches, forKey: "ignoreOriginTouches")
+        defaults.set(isTouchEventLoggingEnabled, forKey: "isTouchEventLoggingEnabled")
 
         defaults.set(isScrollingWithOneFingerEnabled, forKey: "isScrollingWithOneFingerEnabled")
         defaults.set(isSecondaryClickEnabled, forKey: "isSecondaryClickEnabled")
         defaults.set(isMagnificationEnabled, forKey: "isMagnificationEnabled")
         defaults.set(isClickWindowToFrontEnabled, forKey: "isClickWindowToFrontEnabled")
+        defaults.set(isWindowsTouchModeEnabled, forKey: "isWindowsTouchModeEnabled")
         defaults.set(isClickOnLiftEnabled, forKey: "isClickOnLiftEnabled")
         defaults.set(areAdditionalDigitizerRotationSettingsVisible, forKey: "areAdditionalDigitizerRotationSettingsVisible")
     }
@@ -225,6 +243,13 @@ extension TouchUp {
     func setRotation(_ rotation: CGFloat, forDigitizer locationID: HIDLocationID) {
         guard var config = digitizerConfigs[locationID] else { return }
         config.additionalRotation = rotation
+        digitizerConfigs[locationID] = config
+        persistMapping(forLocationID: locationID)
+    }
+
+    func setCalibration(_ calibration: TouchCalibration?, forDigitizer locationID: HIDLocationID) {
+        guard var config = digitizerConfigs[locationID] else { return }
+        config.calibration = calibration
         digitizerConfigs[locationID] = config
         persistMapping(forLocationID: locationID)
     }
@@ -305,28 +330,47 @@ extension TouchUp: TUCTouchDelegate {
     func digitizerRotation(forLocationID locationID: UInt32) -> CGFloat {
         digitizerConfigs[locationID]?.additionalRotation ?? 0
     }
+
+    func calibratedRelativePoint(_ point: CGPoint, forLocationID locationID: UInt32) -> CGPoint {
+        if calibrationBypassLocationID == locationID {
+            return point
+        }
+        return digitizerConfigs[locationID]?.calibration?.apply(to: point) ?? point
+    }
     
     func action(for gesture: TUCCursorGesture) -> TUCCursorAction {
         switch gesture {
         case .TUCCursorGestureTouchDown:
+            if isWindowsTouchModeEnabled {
+                return .move
+            }
             return isClickWindowToFrontEnabled ? .moveClickIfNeeded : .move
             
         case .TUCCursorGestureTap:
             return .click
             
         case .TUCCursorGestureLongPress:
-            return .click
+            return isWindowsTouchModeEnabled ? .secondaryClick : .click
             
         case .TUCCursorGestureDrag:
+            if isWindowsTouchModeEnabled {
+                return .drag
+            }
             return isClickOnLiftEnabled ? .pointAndClick : (isScrollingWithOneFingerEnabled ? .scroll : .move)
             
         case .TUCCursorGestureHoldAndDrag:
             return .drag
             
         case .TUCCursorGestureTapSecondFinger:
+            if isWindowsTouchModeEnabled {
+                return .none
+            }
             return isSecondaryClickEnabled ? .secondaryClick : .none
             
         case .TUCCursorGestureTwoFingerDrag:
+            if isWindowsTouchModeEnabled {
+                return .scroll
+            }
             return isScrollingWithOneFingerEnabled ? .drag : .scroll
             
         case .TUCCursorGesturePinch:
@@ -386,6 +430,10 @@ extension TouchUp {
         case \.isClickWindowToFrontEnabled:
             return("Bring Windows to Front",
                    "When touching a window that is not frontmost, bring it to front first. (EXPERIMENTAL)")
+
+        case \.isWindowsTouchModeEnabled:
+            return("Windows Touch Mode",
+                   "Tap to click on release, double-tap to double-click, long-press for secondary click, drag with one finger, and scroll with two fingers.")
             
         case \.isClickOnLiftEnabled:
             return("Point and click",
@@ -398,10 +446,18 @@ extension TouchUp {
         case \.doubleClickDistance:
             return("Double Click Zone",
                    "How many mm can two taps be apart from each other to qualify double click")
+
+        case \.windowsTouchModeSingleFingerDistance:
+            return("Two-Finger Separation",
+                   "In Windows Touch Mode, require more separation before two active contacts start a two-finger gesture.")
             
         case \.ignoreOriginTouches:
             return("Ignore Origin Touches",
                    "If your touchscreen randomly sends coordinate (0,0) in its datastream, toggle this option to make input more stable.")
+
+        case \.isTouchEventLoggingEnabled:
+            return("Log Touch Events",
+                   "Write touch coordinates, recognized gestures, cursor actions, and click counts to the system log.")
             
         case \.errorResistance:
             return("Error Resistance",

@@ -20,4 +20,8 @@ void CloseHIDManager(void);
 /// Applies to currently-connected and future devices. Pen interfaces stay shared.
 void SetTouchDevicesSeized(bool seize);
 
+/// Enables verbose HID report logging. Intended to be wired to the app's
+/// troubleshooting log toggle.
+void SetHIDEventLogging(bool logEvents);
+
 #endif /* HIDInterpreter_h */

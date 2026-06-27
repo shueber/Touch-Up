@@ -33,6 +33,17 @@ NS_ASSUME_NONNULL_BEGIN
 @property CGFloat doubleClickTolerance;
 
 /**
+ The maximal movement in mm that still lets a Windows-style touch count as a tap.
+ */
+@property CGFloat tapMovementTolerance;
+
+/**
+ In Windows Touch Mode, contacts closer than this threshold are treated as one
+ finger instead of starting a two-finger gesture. Set to 0 to disable.
+ */
+@property CGFloat windowsTouchModeSingleFingerDistance;
+
+/**
  How long the user has to hold before a drag gesture turns into holdAndDrag.
  */
 @property NSTimeInterval holdDuration;
@@ -47,6 +58,21 @@ NS_ASSUME_NONNULL_BEGIN
  If a touchscreen sometimes sends invalid touch data at location (0,0), activate this option to ignore them
  */
 @property BOOL ignoreOriginTouches;
+
+
+/**
+ If enabled, gestures are interpreted closer to a direct Windows-style
+ touchscreen: tap clicks on release, long press secondary-clicks, one-finger
+ movement drags, and two-finger movement scrolls. The default value is NO.
+ */
+@property BOOL usesWindowsTouchMode;
+
+
+/**
+ If enabled, logs touch coordinate conversion, gesture selection, cursor actions,
+ and click counts to the system log. The default value is NO.
+ */
+@property (nonatomic) BOOL logTouchEvents;
 
 
 - (void)start;

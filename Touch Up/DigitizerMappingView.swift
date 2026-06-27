@@ -44,19 +44,6 @@ struct DigitizerMappingView: View {
                     .foregroundColor(.secondary)
 
                 Spacer()
-
-                Button(action: {
-                    let screen = model.resolvedMapping(forLocationID: digitizer.locationID).screen
-                    (NSApp.delegate as? AppDelegate)?.showDebugOverlay(on: screen, digitizer: digitizer.locationID)
-                }, label: {
-                    HStack(spacing: 2) {
-                        Image(systemName: "arrow.up.forward.app.fill")
-                        Text("Test")
-                    }
-                    .font(.caption)
-                })
-                .foregroundColor(.accentColor)
-                .buttonStyle(.plain)
             }
 
             HStack(spacing: 8) {
@@ -79,6 +66,20 @@ struct DigitizerMappingView: View {
 
                 screenPicker(for: digitizer)
             }
+
+            Button(action: {
+                let screen = model.resolvedMapping(forLocationID: digitizer.locationID).screen
+                (NSApp.delegate as? AppDelegate)?.showDebugOverlay(on: screen, digitizer: digitizer.locationID)
+            }, label: {
+                HStack {
+                    Image(systemName: "scope")
+                    Text("Test / Calibrate Touchscreen")
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            })
+            .buttonStyle(BorderedButtonStyle())
+            .controlSize(.large)
         }
     }
 

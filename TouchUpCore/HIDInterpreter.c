@@ -13,10 +13,12 @@
 #include <IOKit/hid/IOHIDManager.h>
 
 #include <CoreGraphics/CoreGraphics.h>
+#include <os/log.h>
 
 #pragma mark - Per-Device State
 
 #define kMaxTouchscreens 4
+#define kMaxTrackedTouchCollections 32
 
 typedef struct {
     IOHIDDeviceRef          device;     // unique identity of this HID interface
@@ -43,7 +45,19 @@ typedef struct {
     CFIndex                 contactCount;
     CFIndex                 hybridOffset;
     Boolean                 touchscreenUsesHybridMode;
+    Boolean                 touchCollectionWasActive[kMaxTrackedTouchCollections];
+    CGFloat                 touchCollectionLastX[kMaxTrackedTouchCollections];
+    CGFloat                 touchCollectionLastY[kMaxTrackedTouchCollections];
 } HIDDeviceState;
+
+typedef struct {
+    CGFloat                 x;
+    CGFloat                 y;
+    CFIndex                 contactID;
+    CFIndex                 tipSwitch;
+    CFIndex                 isValid;
+    Boolean                 hasTipSwitch;
+} HIDTouchCollectionData;
 
 static HIDDeviceState gDevices[kMaxTouchscreens];
 static int gDeviceCount = 0;
@@ -55,6 +69,7 @@ static void* gTouchManager;
 static CFRunLoopRef gRunLoopRef;
 
 static IOHIDManagerRef gHidManager;
+static Boolean gLogHIDEvents = false;
 
 // When true, accepted touch interfaces are opened exclusively (seized) so macOS and other
 // apps no longer receive their events — Touch Up becomes the sole handler. Opt-in.
@@ -421,25 +436,18 @@ void PrintTouchCollection(HIDDeviceState *device, IOHIDElementRef collection) {
 }
 
 
-/**
- Dispatches touch data for the given collection, but only if all values needed were received
- */
-
-void DispatchTouchDataForCollection(HIDDeviceState *device, IOHIDElementRef collection) {
+static HIDTouchCollectionData TouchDataForCollection(HIDDeviceState *device, IOHIDElementRef collection) {
+    HIDTouchCollectionData data = {
+        .x = -1,
+        .y = -1,
+        .contactID = 0,
+        .tipSwitch = 0,
+        .isValid = 0,
+        .hasTipSwitch = false
+    };
     
     CFArrayRef children = IOHIDElementGetChildren(collection);
-    
-    CGFloat x = -1;
-    CGFloat y = -1;
-    
-    CFIndex contactID = 0;
-    CFIndex tipSwitch = 0;
-    CFIndex isValid = 0;
-    
-    CFIndex width   = kCFNotFound;
-    CFIndex height  = kCFNotFound;
-    CFIndex azimuth = kCFNotFound;
-    
+
     // get stored values of all touches
     for (CFIndex i=0; i<CFArrayGetCount(children); i++) {
         IOHIDElementRef element = (IOHIDElementRef)CFArrayGetValueAtIndex(children, i);
@@ -454,40 +462,96 @@ void DispatchTouchDataForCollection(HIDDeviceState *device, IOHIDElementRef coll
                     CGFloat min = (CGFloat)IOHIDElementGetLogicalMin(element);
                     CGFloat max = (CGFloat)IOHIDElementGetLogicalMax(element);
                     CGFloat curr = (CGFloat)value;
-                    x = ( (curr - min) / (max - min) ) + min;
+                    data.x = ( (curr - min) / (max - min) ) + min;
                 }
                 
                 else if (usage == kHIDUsage_GD_Y) {
                     CGFloat min = (CGFloat)IOHIDElementGetLogicalMin(element);
                     CGFloat max = (CGFloat)IOHIDElementGetLogicalMax(element);
                     CGFloat curr = (CGFloat)value;
-                    y = ( (curr - min) / (max - min) ) + min;
+                    data.y = ( (curr - min) / (max - min) ) + min;
                 }
             } //kHIDPage_GenericDesktop
             
             else if (page == kHIDPage_Digitizer) {
                 if (usage == kHIDUsage_Dig_ContactIdentifier) {
-                    contactID = value;
+                    data.contactID = value;
                 } else if (usage == kHIDUsage_Dig_TipSwitch) {
-                    tipSwitch = value;
+                    data.tipSwitch = value;
+                    data.hasTipSwitch = true;
                 } else if (usage == kHIDUsage_Dig_TouchValid) {
-                    isValid = value;
-                } else if (usage == kHIDUsage_Dig_Width) {
-                    width = value;
-                } else if (usage == kHIDUsage_Dig_Height) {
-                    height = value;
-                } else if (usage == kHIDUsage_Dig_Azimuth) {
-                    azimuth = value;
+                    data.isValid = value;
                 }
             } // kHIDPage_Digitizer
         }
     }
-    TouchInputManagerUpdateTouchPosition(gTouchManager, device->locationID, contactID, x, y, (int)tipSwitch, (int)isValid);
-    
-    //    if (width != kCFNotFound && height != kCFNotFound && azimuth != kCFNotFound) {
-    //        TouchInputManagerUpdateTouchSize(gTouchManager, contactID, (CGFloat)width, (CGFloat)height, (CGFloat)azimuth);
-    //    }
-    
+
+    return data;
+}
+
+
+static void LogTouchDataForCollection(HIDDeviceState *device, HIDTouchCollectionData data, CFIndex collectionIndex, Boolean shouldDispatch, CFIndex effectiveContactID) {
+    if (gLogHIDEvents) {
+        os_log_info(OS_LOG_DEFAULT,
+                    "TouchUp HID collection locationID=0x%{public}08x index=%{public}ld dispatch=%{public}d contact=%{public}ld effectiveContact=%{public}ld tip=%{public}ld valid=%{public}ld x=%{public}.4f y=%{public}.4f",
+                    device->locationID,
+                    (long)collectionIndex,
+                    shouldDispatch,
+                    (long)data.contactID,
+                    (long)effectiveContactID,
+                    (long)data.tipSwitch,
+                    (long)data.isValid,
+                    data.x,
+                    data.y);
+    }
+}
+
+
+static void DispatchTouchData(HIDDeviceState *device, HIDTouchCollectionData data, CFIndex contactID) {
+    TouchInputManagerUpdateTouchPosition(gTouchManager, device->locationID, contactID, data.x, data.y, (int)data.tipSwitch, (int)data.isValid);
+}
+
+
+static Boolean ShouldUseCollectionIndexContactIDs(HIDDeviceState *device, CFIndex numCollections) {
+    // Some parallel touch report descriptors reuse ContactIdentifier=0 for every
+    // logical collection. In that shape the collection slot is the stable identity.
+    return !device->touchscreenUsesHybridMode && numCollections > 1 && device->contactCollectionCount > 1;
+}
+
+
+static void DispatchNonHybridTouches(HIDDeviceState *device, CFIndex numCollections) {
+    Boolean useCollectionIndexContactIDs = ShouldUseCollectionIndexContactIDs(device, numCollections);
+
+    for (CFIndex i=0; i<numCollections; i++) {
+        IOHIDElementRef collection = (IOHIDElementRef)CFArrayGetValueAtIndex(device->touchCollectionElements, i);
+        HIDTouchCollectionData data = TouchDataForCollection(device, collection);
+        Boolean isTrackedCollection = i < kMaxTrackedTouchCollections;
+        Boolean wasActive = isTrackedCollection && device->touchCollectionWasActive[i];
+        Boolean isActive = data.hasTipSwitch ? data.tipSwitch != 0 : i < device->contactCount;
+        Boolean shouldDispatch = isActive || wasActive;
+        CFIndex effectiveContactID = useCollectionIndexContactIDs && isTrackedCollection ? i : data.contactID;
+
+        if (shouldDispatch && !isActive && wasActive) {
+            data.x = device->touchCollectionLastX[i];
+            data.y = device->touchCollectionLastY[i];
+        }
+
+        LogTouchDataForCollection(device, data, i, shouldDispatch, effectiveContactID);
+
+        if (shouldDispatch) {
+            DispatchTouchData(device, data, effectiveContactID);
+        }
+
+        if (isTrackedCollection) {
+            if (isActive) {
+                device->touchCollectionWasActive[i] = true;
+                device->touchCollectionLastX[i] = data.x;
+                device->touchCollectionLastY[i] = data.y;
+            } else if (wasActive) {
+                device->touchCollectionWasActive[i] = false;
+            }
+        }
+    }
 }
 
 
@@ -496,6 +560,29 @@ void DispatchTouches(HIDDeviceState *device) {
     
     CFIndex numCollections = CFArrayGetCount(device->touchCollectionElements);
     CFIndex remainingUpdates = device->contactCount - device->hybridOffset;
+
+    if (gLogHIDEvents) {
+        os_log_info(OS_LOG_DEFAULT,
+                    "TouchUp HID report locationID=0x%{public}08x contactCount=%{public}ld collections=%{public}ld hybridOffset=%{public}ld remaining=%{public}ld hybrid=%{public}d",
+                    device->locationID,
+                    (long)device->contactCount,
+                    (long)numCollections,
+                    (long)device->hybridOffset,
+                    (long)remainingUpdates,
+                    device->touchscreenUsesHybridMode);
+    }
+
+    if (numCollections <= 0) {
+        TouchInputManagerDidProcessReport(gTouchManager, device->locationID);
+        return;
+    }
+
+    if (!device->touchscreenUsesHybridMode) {
+        DispatchNonHybridTouches(device, numCollections);
+        device->hybridOffset = 0;
+        TouchInputManagerDidProcessReport(gTouchManager, device->locationID);
+        return;
+    }
     
     CFIndex numUpdates = numCollections;
     if (remainingUpdates < numCollections) {
@@ -509,7 +596,17 @@ void DispatchTouches(HIDDeviceState *device) {
     // update the touch data
     for (CFIndex i=0; i<numElementsToPost; i++) {
         IOHIDElementRef collection = (IOHIDElementRef)CFArrayGetValueAtIndex(device->touchCollectionElements, i);
-        DispatchTouchDataForCollection(device, collection);
+        HIDTouchCollectionData data = TouchDataForCollection(device, collection);
+        LogTouchDataForCollection(device, data, i, true, data.contactID);
+        DispatchTouchData(device, data, data.contactID);
+    }
+
+    if (gLogHIDEvents) {
+        for (CFIndex i=numElementsToPost; i<numCollections; i++) {
+            IOHIDElementRef collection = (IOHIDElementRef)CFArrayGetValueAtIndex(device->touchCollectionElements, i);
+            HIDTouchCollectionData data = TouchDataForCollection(device, collection);
+            LogTouchDataForCollection(device, data, i, false, data.contactID);
+        }
     }
     
     device->hybridOffset = device->hybridOffset + numUpdates;
@@ -559,6 +656,11 @@ void SetTouchDevicesSeized(bool seize) {
             ApplySeizeState(&gDevices[i]);
         }
     }
+}
+
+
+void SetHIDEventLogging(bool logEvents) {
+    gLogHIDEvents = logEvents;
 }
 
 
@@ -852,4 +954,3 @@ void CloseHIDManager(void) {
     IOHIDManagerUnscheduleFromRunLoop(gHidManager, gRunLoopRef, kCFRunLoopCommonModes);
     IOHIDManagerClose(gHidManager, kIOHIDOptionsTypeNone);
 }
-
