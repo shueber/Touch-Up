@@ -173,6 +173,14 @@
 }
 
 - (CGPoint)convertGlassPointToContentPoint:(CGPoint)glassPoint {
+    // A non-mirrored panel IS its own display: the desktop image fills the glass 1:1, so there
+    // is no letterbox to undo. Only a panel mirroring a differently-shaped master needs aspect
+    // fitting. This also guards against nativeResolution being a bogus max-area advertised mode
+    // (e.g. a generic touch controller reporting 540x1920), which otherwise stretches one axis.
+    if (CGDisplayMirrorsDisplay((CGDirectDisplayID)self.id) == kCGNullDirectDisplay) {
+        return glassPoint;
+    }
+
     CGFloat glassAspect   = self.nativeResolution.width / self.nativeResolution.height;
     CGFloat contentAspect = self.frame.size.width / self.frame.size.height;
     if (glassAspect <= 0 || contentAspect <= 0) {
