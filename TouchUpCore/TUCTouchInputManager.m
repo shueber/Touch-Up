@@ -446,9 +446,12 @@ static const CGFloat kPhaseMovementThreshold = 0.1;
         case TUCCursorActionMoveClickIfNeeded:
             [utils moveCursorTo:screenLocation];
             if ([self isLocationOutsideFrontmostWindow:screenLocation locationID:touch.locationID]) {
-                [utils performClickAt:screenLocation];
+                // Not `performClickAt:`. This click is ours, not the user's: it exists only to
+                // raise the window, and it must stay outside the click sequence so that the
+                // real click the same tap produces on lift-off is still counted as the first.
+                [utils bringWindowToFrontAt:screenLocation];
             }
-            
+
             break;
             
         case TUCCursorActionPointAndClick:
@@ -766,6 +769,13 @@ static const CGFloat kPhaseMovementThreshold = 0.1;
             // our injected raise-click plus the tap's own click would register as a
             // title-bar double-click (→ zoom/fullscreen). A single tap already raises the
             // window, so skip the extra click within the title-bar strip.
+            //
+            // The raise-click no longer seeds a double click — it goes through
+            // `-bringWindowToFrontAt:`, which stays out of the click sequence — so this strip
+            // should now be redundant and could be dropped to make taps on a background
+            // title bar raise the window again. It is kept until that is confirmed on real
+            // hardware, because the failure it guards against (a window unexpectedly zooming
+            // to fullscreen) is destructive and not worth risking on reasoning alone.
             //
             // CGWindowList can't tell us the actual title-bar/toolbar height, so this is a
             // heuristic constant. Erring high (toolbars on Tahoe are tall) costs at most a

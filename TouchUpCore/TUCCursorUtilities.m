@@ -65,6 +65,16 @@
 
 
 
+/**
+ Posts a click whose only job is to raise the window under it, for a tap that landed on a
+ window that is not frontmost.
+
+ Deliberately not built on `performClickAt:`: the click state is pinned to 1 and the click
+ sequence is left untouched, because this click is injected by us rather than performed by
+ the user. Letting it advance the sequence would make the real click that the same tap
+ produces on lift-off arrive as a double click — and would let a preceding double tap leak
+ its own elevated click state into the raise.
+ */
 - (void)bringWindowToFrontAt:(CGPoint)aLocation {
     CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, aLocation, kCGMouseButtonLeft);
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
