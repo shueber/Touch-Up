@@ -23,6 +23,7 @@ class TouchUp: NSObject, ObservableObject {
     
     @Published var holdDuration: TimeInterval = 0.1
     @Published var doubleClickDistance: CGFloat = 3 //mm
+    @Published var tapDistance: CGFloat = 2.5 //mm
     @Published var errorResistance: NSInteger = 0 // num of Reports to wait before cancelling a touch
     @Published var ignoreOriginTouches: Bool = false
     
@@ -31,6 +32,7 @@ class TouchUp: NSObject, ObservableObject {
     @Published var isMagnificationEnabled = false
     @Published var isClickWindowToFrontEnabled = false
     @Published var isClickOnLiftEnabled = false
+    @Published var isPressAndHoldEnabled = false
 
     @Published var areAdditionalDigitizerRotationSettingsVisible = false
 
@@ -120,6 +122,7 @@ extension TouchUp {
         defaults.register(defaults: [
             "holdDuration" : 0.1,
             "doubleClickDistance" : 8,
+            "tapDistance" : 2.5,
             "errorResistance" : 4,
             "ignoreOriginTouches" : true,
 
@@ -128,11 +131,16 @@ extension TouchUp {
             "isMagnificationEnabled" : true,
             "isClickWindowToFrontEnabled" : false,
             "isClickOnLiftEnabled" : false,
+            "isPressAndHoldEnabled" : false,
             "areAdditionalDigitizerRotationSettingsVisible" : false
         ])
         
         holdDuration = defaults.double(forKey: "holdDuration")
-        doubleClickDistance = defaults.double(forKey: "doubleClickDistance")
+        // A zero zone means two taps can never be close enough to double click. It used to be
+        // selectable while the distance check was broken and therefore inert, so a stored 0 is
+        // not a deliberate choice — lift it to the smallest value the slider now offers.
+        doubleClickDistance = max(1, defaults.double(forKey: "doubleClickDistance"))
+        tapDistance = defaults.double(forKey: "tapDistance")
         errorResistance = defaults.integer(forKey: "errorResistance")
         ignoreOriginTouches = defaults.bool(forKey: "ignoreOriginTouches")
 
@@ -141,6 +149,7 @@ extension TouchUp {
             $isPublishingMouseEventsEnabled.assign(to: \.postMouseEvents, on: touchManager),
             $holdDuration.assign(to: \.holdDuration, on: touchManager),
             $doubleClickDistance.assign(to: \.doubleClickTolerance, on: touchManager),
+            $tapDistance.assign(to: \.tapTolerance, on: touchManager),
             $errorResistance.assign(to: \.errorResistance, on: touchManager),
             $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager)
         ]
@@ -152,6 +161,7 @@ extension TouchUp {
         isMagnificationEnabled = defaults.bool(forKey: "isMagnificationEnabled")
         isClickWindowToFrontEnabled = defaults.bool(forKey: "isClickWindowToFrontEnabled")
         isClickOnLiftEnabled = defaults.bool(forKey: "isClickOnLiftEnabled")
+        isPressAndHoldEnabled = defaults.bool(forKey: "isPressAndHoldEnabled")
         areAdditionalDigitizerRotationSettingsVisible = defaults.bool(forKey: "areAdditionalDigitizerRotationSettingsVisible")
     }
     
@@ -161,7 +171,8 @@ extension TouchUp {
         
         defaults.set(holdDuration, forKey: "holdDuration")
         defaults.set(doubleClickDistance, forKey: "doubleClickDistance")
-        defaults.set(errorResistance, forKey: "$errorResistance")
+        defaults.set(tapDistance, forKey: "tapDistance")
+        defaults.set(errorResistance, forKey: "errorResistance")
         defaults.set(ignoreOriginTouches, forKey: "ignoreOriginTouches")
 
         defaults.set(isScrollingWithOneFingerEnabled, forKey: "isScrollingWithOneFingerEnabled")
@@ -169,6 +180,7 @@ extension TouchUp {
         defaults.set(isMagnificationEnabled, forKey: "isMagnificationEnabled")
         defaults.set(isClickWindowToFrontEnabled, forKey: "isClickWindowToFrontEnabled")
         defaults.set(isClickOnLiftEnabled, forKey: "isClickOnLiftEnabled")
+        defaults.set(isPressAndHoldEnabled, forKey: "isPressAndHoldEnabled")
         defaults.set(areAdditionalDigitizerRotationSettingsVisible, forKey: "areAdditionalDigitizerRotationSettingsVisible")
     }
 
@@ -315,8 +327,13 @@ extension TouchUp: TUCTouchDelegate {
             return .click
             
         case .TUCCursorGestureLongPress:
-            return .click
-            
+            // Posted once the resting finger has made the gesture unambiguous. Mapping it to a
+            // drag presses the button there and holds it until lift-off, which is what apps
+            // expecting a real press-and-hold need; the lift-off click is suppressed in that
+            // case so the touch still actuates exactly once. Off by default, because it turns
+            // a long rest into a held button rather than the click it produces today.
+            return isPressAndHoldEnabled ? .drag : .none
+
         case .TUCCursorGestureDrag:
             return isClickOnLiftEnabled ? .pointAndClick : (isScrollingWithOneFingerEnabled ? .scroll : .move)
             
@@ -390,6 +407,10 @@ extension TouchUp {
         case \.isClickOnLiftEnabled:
             return("Point and click",
                    "Very reduced input set for exhibits: Move cursor by dragging, and click by releasing. Overrides scrolling and dragging functionality.")
+
+        case \.isPressAndHoldEnabled:
+            return("Press and Hold",
+                   "Hold the mouse button down for as long as your finger rests on the screen, instead of clicking once you lift it. Needed by apps that react to a button being held. (EXPERIMENTAL)")
             
         case \.holdDuration:
             return("Hold Duration",
@@ -398,6 +419,10 @@ extension TouchUp {
         case \.doubleClickDistance:
             return("Double Click Zone",
                    "How many mm can two taps be apart from each other to qualify double click")
+
+        case \.tapDistance:
+            return("Tap Zone",
+                   "How many mm your finger may slide while touching and still count as a tap instead of a drag. Increase this if taps do not click reliably.")
             
         case \.ignoreOriginTouches:
             return("Ignore Origin Touches",

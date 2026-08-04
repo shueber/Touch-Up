@@ -14,7 +14,22 @@ NS_ASSUME_NONNULL_BEGIN
 + (instancetype)sharedInstance;
 
 
+/**
+ Radius, in screen points, within which a follow-up click continues the current click
+ sequence instead of starting a new one. Callers own the conversion from a physical
+ distance, since points per millimetre differ per screen.
+
+ A non-positive value means no two clicks are ever close enough to form a sequence, i.e. it
+ disables double clicking.
+ */
 @property CGFloat doubleClickTolerance;
+
+/**
+ Whether the left button is currently held down, i.e. a drag is in progress. Callers use this
+ to tell an already-actuated press from an untouched button, so that releasing a held press
+ does not also emit a separate click.
+ */
+@property (readonly) BOOL isLeftMouseDown;
 
 - (CGPoint)currentCursorLocation;
 

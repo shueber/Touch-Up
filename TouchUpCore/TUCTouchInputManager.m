@@ -17,8 +17,10 @@
 @property (weak, nullable) TUCTouch *cursorTouch;
 @property (weak, nullable) TUCTouch *gestureAdditionalTouch;
 
-@property BOOL cursorTouchQualifiedForTap; // if the cursor entered moving state once it can no longer be interpreted as tap
+@property CGPoint cursorTouchOrigin; // where the cursor touch first landed, in relative screen coordinates
+@property BOOL cursorTouchQualifiedForTap; // NO once the cursor touch has travelled further than `tapTolerance` from its origin
 @property BOOL cursorTouchDidHold; //
+@property CGPoint cursorTouchStationaryAnchor; // reference point the hold clock is measured against
 @property (strong) NSDate *cursorTouchStationarySinceDate;
 
 @property CGFloat pinchDistance;
@@ -26,6 +28,22 @@
 @property TUCCursorGesture identifiedMultitouchGesture;
 
 @end
+
+
+/**
+ How far (mm) the finger may wander while the hold clock keeps running. Generous enough to
+ absorb digitizer noise and a resting finger's centroid drift, tight enough that a
+ deliberate slow drag keeps resetting the clock instead of turning into a hold.
+ */
+static const CGFloat kHoldStillnessTolerance = 1.0;
+
+/**
+ Per-report movement (mm) below which a touch is reported as `NSTouchPhaseStationary`
+ rather than `NSTouchPhaseMoved`. Deliberately tiny: this only classifies the phase, and a
+ low value keeps slow, fine-grained scrolling responsive. Tap and hold decisions must not
+ use it — they are measured against an anchor point, not the previous report.
+ */
+static const CGFloat kPhaseMovementThreshold = 0.1;
 
 
 @implementation TUCTouchInputManager
@@ -59,6 +77,13 @@
 }
 
 - (void)didDisconnectTouchscreenWithLocationID:(uint32_t)locationID {
+    // A touch in progress on this digitizer will never get its lift-off report, and stale
+    // touches are only reaped as further reports come in — which they now never will. Release
+    // whatever it was holding here, or the button stays down for good.
+    if (self.cursorTouch != nil && self.cursorTouch.locationID == locationID) {
+        [self stopCurrentGesture];
+    }
+
     [self.frameIDsByLocationID removeObjectForKey:@(locationID)];
     [self.delegate touchscreenDidDisconnectWithLocationID:locationID];
 }
@@ -121,9 +146,11 @@
     
     if (isNewTouch && (self.cursorTouch == nil || !self.cursorTouch.isActive)) {
         self.cursorTouch = touch;
+        self.cursorTouchOrigin = point;
         self.cursorTouchQualifiedForTap = YES;
         self.cursorTouchDidHold = NO;
-        self.cursorTouchStationarySinceDate = nil;
+        self.cursorTouchStationaryAnchor = point;
+        self.cursorTouchStationarySinceDate = [NSDate date];
     }
     
     [touch setLocation: point];
@@ -141,23 +168,15 @@
     
     if(touch.previousPhase != NSTouchPhaseEnded && !isNewTouch) {
         // update to an existing touch... check if stationary or not
-        CGFloat digitizerRelDistance = sqrt(pow(touch.location.x - touch.previousLocation.x, 2) + pow(touch.location.y - touch.previousLocation.y, 2));
-        CGFloat screenSize = [self touchscreenForLocationID:locationID].nativePhysicalSize.width;
-        //TODO: - Make customizable in settings?
-        BOOL isStationary = (digitizerRelDistance * screenSize) < 0.1;
-//        BOOL isStationary = CGPointEqualToPoint(touch.location, touch.previousLocation);
-        
+        TUCScreen *screen = [self touchscreenForLocationID:locationID];
+        CGFloat stepDistance = [screen millimetreDistanceBetweenRelativePoint:touch.location
+                                                                          and:touch.previousLocation];
+
         if (touch.uuid == self.cursorTouch.uuid) {
-            if (!isStationary) {
-                self.cursorTouchQualifiedForTap = NO;
-                self.cursorTouchStationarySinceDate = nil;
-                
-            } else if (touch.phase !=  NSTouchPhaseStationary) {
-                self.cursorTouchStationarySinceDate = [NSDate date];
-            }
+            [self updateTapAndHoldStateForCursorTouch:touch onScreen:screen];
         }
-        
-        [touch setPhase:isStationary ? NSTouchPhaseStationary : NSTouchPhaseMoved];
+
+        [touch setPhase:(stepDistance < kPhaseMovementThreshold) ? NSTouchPhaseStationary : NSTouchPhaseMoved];
     }
     
     
@@ -181,6 +200,66 @@
 #pragma mark - Mouse Cursor Management
 
 
+/**
+ Re-evaluates the two movement-dependent decisions about the cursor touch — is it still a
+ tap, and is it still being held in place — after every report.
+
+ Both are measured against an anchor point rather than against the previous report. Doing
+ it per report made them hair-trigger: a few tenths of a millimetre of digitizer noise, or
+ the way the reported contact centroid shifts while a finger flattens onto the glass, was
+ enough to permanently disqualify the tap. On panels noisy enough to cross that line every
+ tap degraded into a drag, so touching an item only moved the cursor there and never
+ clicked it — and hold-and-drag could never arm either.
+ */
+- (void)updateTapAndHoldStateForCursorTouch:(TUCTouch *)touch onScreen:(TUCScreen *)screen {
+
+    // A touch stays a tap until the finger leaves a slop radius around where it landed.
+    // Once it has left, it can never become a tap again.
+    if (self.cursorTouchQualifiedForTap
+        && [screen millimetreDistanceBetweenRelativePoint:touch.location and:self.cursorTouchOrigin] > self.tapTolerance) {
+
+        self.cursorTouchQualifiedForTap = NO;
+        self.cursorTouchStationarySinceDate = nil;
+    }
+
+    // The hold clock runs for as long as the finger stays near its anchor. Wandering off
+    // re-anchors and restarts it, so a slow, deliberate drag never accumulates enough
+    // stillness to be mistaken for a hold.
+    if ([screen millimetreDistanceBetweenRelativePoint:touch.location and:self.cursorTouchStationaryAnchor] > kHoldStillnessTolerance) {
+        self.cursorTouchStationaryAnchor = touch.location;
+
+        if (self.cursorTouchQualifiedForTap) {
+            self.cursorTouchStationarySinceDate = [NSDate date];
+        }
+    }
+}
+
+
+/**
+ Promotes the cursor touch to a hold once it has stayed put for `holdDuration`.
+ Evaluated on every report regardless of phase: on a noisy digitizer the phase flickers
+ between moved and stationary, and a hold must not depend on catching a stationary one.
+
+ This is also the first moment in a touch at which the gesture is no longer ambiguous — a
+ scroll or a pinch would have moved by now — and therefore the earliest point at which the
+ button may safely be pressed while the finger is still down. `TUCCursorGestureLongPress` is
+ posted exactly once here to offer that; whether it actuates anything is up to the delegate's
+ mapping, since holding the button for the length of the touch is a different interaction
+ model from clicking on lift-off.
+ */
+- (void)updateHoldState {
+    if (self.cursorTouchDidHold
+        || !self.cursorTouchQualifiedForTap
+        || self.cursorTouchStationarySinceDate == nil) {
+        return;
+    }
+
+    if ([[NSDate date] timeIntervalSinceDate:self.cursorTouchStationarySinceDate] > self.holdDuration) {
+        self.cursorTouchDidHold = YES;
+        [self performMouseEventForGesture:TUCCursorGestureLongPress];
+    }
+}
+
 
 - (void)processTouchesForCursorInput {
     
@@ -193,49 +272,47 @@
     
     NSArray<TUCTouch *> *touches = [[self activeTouches] allObjects];
     NSTouchPhase phase = cursorTouch.phase;
-    
-    
+
+    [self updateHoldState];
+
+
     if (phase == NSTouchPhaseBegan) {
         [self performMouseEventForGesture:TUCCursorGestureTouchDown];
         return;
     }
-    
-    
+
+
     else if (phase == NSTouchPhaseStationary) {
-        NSTimeInterval holdDuration = 0;
-        if (self.cursorTouchStationarySinceDate != nil) {
-            holdDuration = [[NSDate date] timeIntervalSinceDate:self.cursorTouchStationarySinceDate];
-        }
-        if (self.cursorTouchQualifiedForTap && holdDuration > self.holdDuration) {
-            // the user left the finger on the screen for the min duration required to produce a hold
-            self.cursorTouchDidHold = YES;
-        }
-        
         [self checkForSecondaryClick];
-        
+
         return;
     }
-    
-    
+
+
     else if (phase == NSTouchPhaseEnded) {
-        if (self.identifiedMultitouchGesture == _TUCCursorGestureNone ) {
+        // A running multitouch gesture owns the lift-off: `stopCurrentGesture` posts its
+        // terminating event (the final magnify, say) and no click may follow it.
+        BOOL wasMultitouchGesture = self.identifiedMultitouchGesture != _TUCCursorGestureNone;
+
+        // Read before anything below releases the button. If the press was already actuated
+        // while the finger rested — a hold mapped to a drag — then the lift is that press's
+        // release, and adding a click on top would actuate the same touch twice.
+        BOOL didActuatePress = [[TUCCursorUtilities sharedInstance] isLeftMouseDown];
+
+        if (!wasMultitouchGesture) {
             if (self.cursorTouchDidHold) {
                 [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
             } else if (!self.cursorTouchQualifiedForTap) {
                 [self performMouseEventForGesture:TUCCursorGestureDrag];
             }
         }
-        
+
         [self stopCurrentGesture];
-        
-        if (self.cursorTouchQualifiedForTap) {
+
+        if (!wasMultitouchGesture && self.cursorTouchQualifiedForTap && !didActuatePress) {
             [self performMouseEventForGesture:TUCCursorGestureTap];
-        } else {
-            if (self.identifiedMultitouchGesture != _TUCCursorGestureNone) {
-                [self performMouseEventForGesture:self.identifiedMultitouchGesture];
-            }
         }
-        
+
         return;
     }
     
@@ -298,6 +375,13 @@
     }
     
     
+    // Still inside the tap slop: the finger has not travelled far enough to mean anything
+    // but a tap yet. Committing to a scroll or a drag here would emit a few pixels of stray
+    // movement on every tap — exactly the noise the slop radius exists to absorb.
+    if (self.cursorTouchQualifiedForTap) {
+        return;
+    }
+
     if (self.cursorTouchDidHold) {
         [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
     } else {
@@ -362,9 +446,12 @@
         case TUCCursorActionMoveClickIfNeeded:
             [utils moveCursorTo:screenLocation];
             if ([self isLocationOutsideFrontmostWindow:screenLocation locationID:touch.locationID]) {
-                [utils performClickAt:screenLocation];
+                // Not `performClickAt:`. This click is ours, not the user's: it exists only to
+                // raise the window, and it must stay outside the click sequence so that the
+                // real click the same tap produces on lift-off is still counted as the first.
+                [utils bringWindowToFrontAt:screenLocation];
             }
-            
+
             break;
             
         case TUCCursorActionPointAndClick:
@@ -416,7 +503,10 @@
     switch(gesture) {
         case TUCCursorGestureTouchDown:         return TUCCursorActionMoveClickIfNeeded;
         case TUCCursorGestureTap:               return TUCCursorActionClick;
-        case TUCCursorGestureLongPress:         return TUCCursorActionClick;
+        // Nothing by default: the lift-off already produces the click, and pressing here too
+        // would actuate the touch twice. Map it to a drag to hold the button for as long as
+        // the finger rests instead.
+        case TUCCursorGestureLongPress:         return TUCCursorActionNone;
         case TUCCursorGestureDrag:              return TUCCursorActionScroll;
         case TUCCursorGestureHoldAndDrag:       return TUCCursorActionDrag;
         case TUCCursorGestureTapSecondFinger:   return TUCCursorActionSecondaryClick;
@@ -680,6 +770,13 @@
             // title-bar double-click (→ zoom/fullscreen). A single tap already raises the
             // window, so skip the extra click within the title-bar strip.
             //
+            // The raise-click no longer seeds a double click — it goes through
+            // `-bringWindowToFrontAt:`, which stays out of the click sequence — so this strip
+            // should now be redundant and could be dropped to make taps on a background
+            // title bar raise the window again. It is kept until that is confirmed on real
+            // hardware, because the failure it guards against (a window unexpectedly zooming
+            // to fullscreen) is destructive and not worth risking on reasoning alone.
+            //
             // CGWindowList can't tell us the actual title-bar/toolbar height, so this is a
             // heuristic constant. Erring high (toolbars on Tahoe are tall) costs at most a
             // missed raise-click near the top of a background window; erring low brings the
@@ -707,11 +804,12 @@
         
         self.cursorTouchQualifiedForTap = NO;
         self.cursorTouchStationarySinceDate = nil;
-        
+
         self.frameIDsByLocationID = [NSMutableDictionary new];
         self.identifiedMultitouchGesture = _TUCCursorGestureNone;
-        
+
         self.doubleClickTolerance = 5;
+        self.tapTolerance = 2.5;
         self.holdDuration = 0.08;
         self.errorResistance = 0;
         

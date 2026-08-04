@@ -13,7 +13,7 @@
 @property NSDate *timeOfLastClick;
 @property CGPoint locationOfLastClick;
 
-@property BOOL isLeftMouseDown;
+@property (readwrite) BOOL isLeftMouseDown;
 
 @property CGPoint momentumScrollTranslation;
 @property (strong) NSTimer *momentumScrollTimer;
@@ -65,6 +65,16 @@
 
 
 
+/**
+ Posts a click whose only job is to raise the window under it, for a tap that landed on a
+ window that is not frontmost.
+
+ Deliberately not built on `performClickAt:`: the click state is pinned to 1 and the click
+ sequence is left untouched, because this click is injected by us rather than performed by
+ the user. Letting it advance the sequence would make the real click that the same tap
+ produces on lift-off arrive as a double click — and would let a preceding double tap leak
+ its own elevated click state into the raise.
+ */
 - (void)bringWindowToFrontAt:(CGPoint)aLocation {
     CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, aLocation, kCGMouseButtonLeft);
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
@@ -83,37 +93,77 @@
 }
 
 /**
- integrated double click support: needs checks time between clicks and spatial distance
+ Posts a complete press and release. Integrated double click support: checks time between
+ clicks and spatial distance.
+
+ Both halves are emitted here, at the moment the finger lifts, so a plain tap has no
+ press-and-hold phase for an app to observe. That is not an oversight, and moving the press
+ to touch-down would break one-finger scrolling: while the finger is still on the glass the
+ gesture is genuinely undecided — tap, scroll, pinch and secondary click all start
+ identically — and a press that has already been delivered cannot be taken back, so an app
+ would begin selecting text the moment the user meant to scroll. The press can only be
+ emitted early once the gesture is no longer ambiguous, which is what the hold does; see
+ `TUCCursorGestureLongPress` and `-dragCursorTo:phase:`.
  */
 - (void)performClickAt:(CGPoint)aLocation {
     [self updateCursorClickCountWithLocation:aLocation];
-    
-    CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, aLocation, kCGMouseButtonLeft);
-    CGEventSetIntegerValueField(event, kCGMouseEventClickState, self.cursorClickCount);
-    CGEventPost(kCGHIDEventTap, event);
-    CGEventSetType(event, kCGEventLeftMouseUp);
-    CGEventPost(kCGHIDEventTap, event);
-    CFRelease(event);
-    
-    self.timeOfLastClick = [NSDate date];
-    self.locationOfLastClick = aLocation;
+
+    // Two purpose-built events rather than one object re-typed and posted twice: that shared
+    // a single creation timestamp between the press and the release, so the pair carried a
+    // press duration of exactly zero.
+    CGEventRef mouseDown = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, aLocation, kCGMouseButtonLeft);
+    CGEventSetIntegerValueField(mouseDown, kCGMouseEventClickState, self.cursorClickCount);
+    CGEventPost(kCGHIDEventTap, mouseDown);
+    CFRelease(mouseDown);
+
+    CGEventRef mouseUp = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseUp, aLocation, kCGMouseButtonLeft);
+    CGEventSetIntegerValueField(mouseUp, kCGMouseEventClickState, self.cursorClickCount);
+    CGEventPost(kCGHIDEventTap, mouseUp);
+    CFRelease(mouseUp);
 }
 
 
+/**
+ Advances the click sequence that gets stamped onto the next mouse event as its click state,
+ so that quick repeat presses in the same spot read as a double or triple click.
+
+ A sequence continues only while both conditions hold: the presses follow each other within
+ the system's double-click interval, and the new one lands inside `doubleClickTolerance` of
+ the previous one. Anything else starts a fresh sequence at 1.
+
+ The count is not capped. A real mouse keeps counting past a triple click — a quadruple click
+ selects a paragraph in some text views — and it used to wrap back to 1 on the fourth press
+ here, which made the *fifth* press of a rapid series look like the second press of a new
+ double click. Rapid repeat tapping therefore produced double clicks the user never asked
+ for.
+ */
 - (void)updateCursorClickCountWithLocation:(CGPoint)aLocation {
     ++self.cursorClickCount;
-    
+
     NSTimeInterval durationSinceLastClick = [[NSDate date] timeIntervalSinceDate:self.timeOfLastClick];
-    
-    if (durationSinceLastClick > [NSEvent doubleClickInterval] || self.cursorClickCount == 4) {
+
+    if (durationSinceLastClick > [NSEvent doubleClickInterval]) {
         self.cursorClickCount = 1;
     }
-    
-    else if ((aLocation.x - self.locationOfLastClick.x) > self.doubleClickTolerance
-             && (aLocation.y - self.locationOfLastClick.y) > self.doubleClickTolerance) {
+
+    // Distance from the previous click, as a radius. This used to compare the two signed
+    // axis deltas against the tolerance and require *both* to exceed it, which only ever
+    // held for a tap moving down and to the right — so in every other direction two quick
+    // taps anywhere on the glass were promoted to a double click. That is easy to trigger on
+    // a large touchscreen, where consecutive taps are naturally far apart.
+    else if (hypot(aLocation.x - self.locationOfLastClick.x,
+                   aLocation.y - self.locationOfLastClick.y) > self.doubleClickTolerance) {
         // touch is too far away
         self.cursorClickCount = 1;
     }
+
+    // Every press that advances the sequence also becomes the reference for the next one.
+    // This used to be done by `performClickAt:` alone, so the press that starts a drag
+    // consumed a count without moving the reference forward: the window for the following
+    // tap was still measured from the click *before* the drag, letting that tap inherit a
+    // count it had not earned — tap, drag, tap at one spot arrived as a triple click.
+    self.timeOfLastClick = [NSDate date];
+    self.locationOfLastClick = aLocation;
 }
 
 

@@ -60,6 +60,16 @@ NS_ASSUME_NONNULL_BEGIN
 - (CGFloat)pixelsPerMM;
 - (CGPoint)convertPointRelativeToAbsolute:(CGPoint)relativePoint;
 
+/// `nativePhysicalSize`, guaranteed to be usable for distance maths. Panels that report no
+/// (or a nonsensical) EDID size fall back to an assumed density, so millimetre thresholds
+/// never collapse to zero or blow up to infinity.
+- (CGSize)effectivePhysicalSize;
+
+/// Physical distance in millimetres between two points given in this screen's relative
+/// content coordinates (each axis normalised to [0,1]). Each axis is scaled by its own
+/// physical extent, so the result stays correct on non-square panels.
+- (CGFloat)millimetreDistanceBetweenRelativePoint:(CGPoint)p1 and:(CGPoint)p2;
+
 /// Maps a point normalised over the full panel glass (in this screen's orientation) to one
 /// normalised over the letterboxed content rectangle macOS actually draws
 /// The result is clamped to [0,1]; touches on the bars snap to the edge.
