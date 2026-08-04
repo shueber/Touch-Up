@@ -17,8 +17,10 @@
 @property (weak, nullable) TUCTouch *cursorTouch;
 @property (weak, nullable) TUCTouch *gestureAdditionalTouch;
 
-@property BOOL cursorTouchQualifiedForTap; // if the cursor entered moving state once it can no longer be interpreted as tap
+@property CGPoint cursorTouchOrigin; // where the cursor touch first landed, in relative screen coordinates
+@property BOOL cursorTouchQualifiedForTap; // NO once the cursor touch has travelled further than `tapTolerance` from its origin
 @property BOOL cursorTouchDidHold; //
+@property CGPoint cursorTouchStationaryAnchor; // reference point the hold clock is measured against
 @property (strong) NSDate *cursorTouchStationarySinceDate;
 
 @property CGFloat pinchDistance;
@@ -26,6 +28,22 @@
 @property TUCCursorGesture identifiedMultitouchGesture;
 
 @end
+
+
+/**
+ How far (mm) the finger may wander while the hold clock keeps running. Generous enough to
+ absorb digitizer noise and a resting finger's centroid drift, tight enough that a
+ deliberate slow drag keeps resetting the clock instead of turning into a hold.
+ */
+static const CGFloat kHoldStillnessTolerance = 1.0;
+
+/**
+ Per-report movement (mm) below which a touch is reported as `NSTouchPhaseStationary`
+ rather than `NSTouchPhaseMoved`. Deliberately tiny: this only classifies the phase, and a
+ low value keeps slow, fine-grained scrolling responsive. Tap and hold decisions must not
+ use it — they are measured against an anchor point, not the previous report.
+ */
+static const CGFloat kPhaseMovementThreshold = 0.1;
 
 
 @implementation TUCTouchInputManager
@@ -121,9 +139,11 @@
     
     if (isNewTouch && (self.cursorTouch == nil || !self.cursorTouch.isActive)) {
         self.cursorTouch = touch;
+        self.cursorTouchOrigin = point;
         self.cursorTouchQualifiedForTap = YES;
         self.cursorTouchDidHold = NO;
-        self.cursorTouchStationarySinceDate = nil;
+        self.cursorTouchStationaryAnchor = point;
+        self.cursorTouchStationarySinceDate = [NSDate date];
     }
     
     [touch setLocation: point];
@@ -141,23 +161,15 @@
     
     if(touch.previousPhase != NSTouchPhaseEnded && !isNewTouch) {
         // update to an existing touch... check if stationary or not
-        CGFloat digitizerRelDistance = sqrt(pow(touch.location.x - touch.previousLocation.x, 2) + pow(touch.location.y - touch.previousLocation.y, 2));
-        CGFloat screenSize = [self touchscreenForLocationID:locationID].nativePhysicalSize.width;
-        //TODO: - Make customizable in settings?
-        BOOL isStationary = (digitizerRelDistance * screenSize) < 0.1;
-//        BOOL isStationary = CGPointEqualToPoint(touch.location, touch.previousLocation);
-        
+        TUCScreen *screen = [self touchscreenForLocationID:locationID];
+        CGFloat stepDistance = [screen millimetreDistanceBetweenRelativePoint:touch.location
+                                                                          and:touch.previousLocation];
+
         if (touch.uuid == self.cursorTouch.uuid) {
-            if (!isStationary) {
-                self.cursorTouchQualifiedForTap = NO;
-                self.cursorTouchStationarySinceDate = nil;
-                
-            } else if (touch.phase !=  NSTouchPhaseStationary) {
-                self.cursorTouchStationarySinceDate = [NSDate date];
-            }
+            [self updateTapAndHoldStateForCursorTouch:touch onScreen:screen];
         }
-        
-        [touch setPhase:isStationary ? NSTouchPhaseStationary : NSTouchPhaseMoved];
+
+        [touch setPhase:(stepDistance < kPhaseMovementThreshold) ? NSTouchPhaseStationary : NSTouchPhaseMoved];
     }
     
     
@@ -181,6 +193,58 @@
 #pragma mark - Mouse Cursor Management
 
 
+/**
+ Re-evaluates the two movement-dependent decisions about the cursor touch — is it still a
+ tap, and is it still being held in place — after every report.
+
+ Both are measured against an anchor point rather than against the previous report. Doing
+ it per report made them hair-trigger: a few tenths of a millimetre of digitizer noise, or
+ the way the reported contact centroid shifts while a finger flattens onto the glass, was
+ enough to permanently disqualify the tap. On panels noisy enough to cross that line every
+ tap degraded into a drag, so touching an item only moved the cursor there and never
+ clicked it — and hold-and-drag could never arm either.
+ */
+- (void)updateTapAndHoldStateForCursorTouch:(TUCTouch *)touch onScreen:(TUCScreen *)screen {
+
+    // A touch stays a tap until the finger leaves a slop radius around where it landed.
+    // Once it has left, it can never become a tap again.
+    if (self.cursorTouchQualifiedForTap
+        && [screen millimetreDistanceBetweenRelativePoint:touch.location and:self.cursorTouchOrigin] > self.tapTolerance) {
+
+        self.cursorTouchQualifiedForTap = NO;
+        self.cursorTouchStationarySinceDate = nil;
+    }
+
+    // The hold clock runs for as long as the finger stays near its anchor. Wandering off
+    // re-anchors and restarts it, so a slow, deliberate drag never accumulates enough
+    // stillness to be mistaken for a hold.
+    if ([screen millimetreDistanceBetweenRelativePoint:touch.location and:self.cursorTouchStationaryAnchor] > kHoldStillnessTolerance) {
+        self.cursorTouchStationaryAnchor = touch.location;
+
+        if (self.cursorTouchQualifiedForTap) {
+            self.cursorTouchStationarySinceDate = [NSDate date];
+        }
+    }
+}
+
+
+/**
+ Promotes the cursor touch to a hold once it has stayed put for `holdDuration`.
+ Evaluated on every report regardless of phase: on a noisy digitizer the phase flickers
+ between moved and stationary, and a hold must not depend on catching a stationary one.
+ */
+- (void)updateHoldState {
+    if (self.cursorTouchDidHold
+        || !self.cursorTouchQualifiedForTap
+        || self.cursorTouchStationarySinceDate == nil) {
+        return;
+    }
+
+    if ([[NSDate date] timeIntervalSinceDate:self.cursorTouchStationarySinceDate] > self.holdDuration) {
+        self.cursorTouchDidHold = YES;
+    }
+}
+
 
 - (void)processTouchesForCursorInput {
     
@@ -193,49 +257,42 @@
     
     NSArray<TUCTouch *> *touches = [[self activeTouches] allObjects];
     NSTouchPhase phase = cursorTouch.phase;
-    
-    
+
+    [self updateHoldState];
+
+
     if (phase == NSTouchPhaseBegan) {
         [self performMouseEventForGesture:TUCCursorGestureTouchDown];
         return;
     }
-    
-    
+
+
     else if (phase == NSTouchPhaseStationary) {
-        NSTimeInterval holdDuration = 0;
-        if (self.cursorTouchStationarySinceDate != nil) {
-            holdDuration = [[NSDate date] timeIntervalSinceDate:self.cursorTouchStationarySinceDate];
-        }
-        if (self.cursorTouchQualifiedForTap && holdDuration > self.holdDuration) {
-            // the user left the finger on the screen for the min duration required to produce a hold
-            self.cursorTouchDidHold = YES;
-        }
-        
         [self checkForSecondaryClick];
-        
+
         return;
     }
-    
-    
+
+
     else if (phase == NSTouchPhaseEnded) {
-        if (self.identifiedMultitouchGesture == _TUCCursorGestureNone ) {
+        // A running multitouch gesture owns the lift-off: `stopCurrentGesture` posts its
+        // terminating event (the final magnify, say) and no click may follow it.
+        BOOL wasMultitouchGesture = self.identifiedMultitouchGesture != _TUCCursorGestureNone;
+
+        if (!wasMultitouchGesture) {
             if (self.cursorTouchDidHold) {
                 [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
             } else if (!self.cursorTouchQualifiedForTap) {
                 [self performMouseEventForGesture:TUCCursorGestureDrag];
             }
         }
-        
+
         [self stopCurrentGesture];
-        
-        if (self.cursorTouchQualifiedForTap) {
+
+        if (!wasMultitouchGesture && self.cursorTouchQualifiedForTap) {
             [self performMouseEventForGesture:TUCCursorGestureTap];
-        } else {
-            if (self.identifiedMultitouchGesture != _TUCCursorGestureNone) {
-                [self performMouseEventForGesture:self.identifiedMultitouchGesture];
-            }
         }
-        
+
         return;
     }
     
@@ -298,6 +355,13 @@
     }
     
     
+    // Still inside the tap slop: the finger has not travelled far enough to mean anything
+    // but a tap yet. Committing to a scroll or a drag here would emit a few pixels of stray
+    // movement on every tap — exactly the noise the slop radius exists to absorb.
+    if (self.cursorTouchQualifiedForTap) {
+        return;
+    }
+
     if (self.cursorTouchDidHold) {
         [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
     } else {
@@ -707,11 +771,12 @@
         
         self.cursorTouchQualifiedForTap = NO;
         self.cursorTouchStationarySinceDate = nil;
-        
+
         self.frameIDsByLocationID = [NSMutableDictionary new];
         self.identifiedMultitouchGesture = _TUCCursorGestureNone;
-        
+
         self.doubleClickTolerance = 5;
+        self.tapTolerance = 2.5;
         self.holdDuration = 0.08;
         self.errorResistance = 0;
         

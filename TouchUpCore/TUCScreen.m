@@ -158,7 +158,33 @@
 - (CGFloat)pixelsPerMM {
     // `frame` and `nativePhysicalSize` are both reported in the same (rotated) on-screen
     // orientation, so their widths line up directly — no manual swap needed.
-    return self.frame.size.width / self.nativePhysicalSize.width;
+    return self.frame.size.width / [self effectivePhysicalSize].width;
+}
+
+- (CGSize)effectivePhysicalSize {
+    CGSize size = self.nativePhysicalSize;
+    if (size.width > 0 && size.height > 0) {
+        return size;
+    }
+
+    // Virtual displays, some capture devices and the occasional panel with a broken EDID
+    // report a zero physical size. Taken literally that turns every millimetre threshold in
+    // the app into either 0 or infinity, so derive a plausible size from the logical frame
+    // instead. `kAssumedPointsPerMM` is ~100 dpi, the usual density of a non-Retina desktop
+    // display — approximate, but in the right order of magnitude, which is all these
+    // thresholds need.
+    static const CGFloat kAssumedPointsPerMM = 4.0;
+    return CGSizeMake(self.frame.size.width / kAssumedPointsPerMM,
+                      self.frame.size.height / kAssumedPointsPerMM);
+}
+
+- (CGFloat)millimetreDistanceBetweenRelativePoint:(CGPoint)p1 and:(CGPoint)p2 {
+    CGSize physicalSize = [self effectivePhysicalSize];
+
+    CGFloat dx = (p1.x - p2.x) * physicalSize.width;
+    CGFloat dy = (p1.y - p2.y) * physicalSize.height;
+
+    return sqrt(dx * dx + dy * dy);
 }
 
 - (CGPoint)convertPointRelativeToAbsolute:(CGPoint)relativePoint {

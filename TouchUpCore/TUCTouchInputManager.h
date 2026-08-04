@@ -38,6 +38,18 @@ NS_ASSUME_NONNULL_BEGIN
 @property NSTimeInterval holdDuration;
 
 /**
+ How far (in mm) a finger may travel from where it first touched down and still count as a
+ tap rather than a drag or a scroll.
+
+ Inside this radius a touch produces a click on lift-off and posts no movement events at
+ all. The radius has to be comfortably larger than the digitizer's noise and than the way
+ the reported contact centroid shifts while a finger flattens onto the glass and lifts off
+ again — otherwise those few tenths of a millimetre are read as the start of a drag and the
+ click is never generated.
+ */
+@property CGFloat tapTolerance;
+
+/**
  If a touch is no longer reported by the screen, wait for this number of incoming reports bevore deleting it from the touch set.
  */
 @property NSInteger errorResistance;
