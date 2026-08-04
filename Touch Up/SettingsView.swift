@@ -78,8 +78,16 @@ struct SettingsView: View {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.holdDuration))
             }
             
-            Slider(value: $model.doubleClickDistance, in: 0...8, step: 1) {
+            // Range starts at 1: a zero zone can never be satisfied. It reaches well past the
+            // default of 8 because the distance check used to be inert, so this is the first
+            // release where the ceiling actually binds — imprecise taps on a large panel need
+            // the headroom to keep double clicking.
+            Slider(value: $model.doubleClickDistance, in: 1...16, step: 1) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.doubleClickDistance))
+            }
+
+            Slider(value: $model.tapDistance, in: 0.5...8, step: 0.5) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.tapDistance))
             }
         }
     }
