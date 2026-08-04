@@ -24,6 +24,13 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property CGFloat doubleClickTolerance;
 
+/**
+ Whether the left button is currently held down, i.e. a drag is in progress. Callers use this
+ to tell an already-actuated press from an untouched button, so that releasing a held press
+ does not also emit a separate click.
+ */
+@property (readonly) BOOL isLeftMouseDown;
+
 - (CGPoint)currentCursorLocation;
 
 - (void)bringWindowToFrontAt:(CGPoint)aLocation;

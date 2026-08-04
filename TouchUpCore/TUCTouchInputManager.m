@@ -77,6 +77,13 @@ static const CGFloat kPhaseMovementThreshold = 0.1;
 }
 
 - (void)didDisconnectTouchscreenWithLocationID:(uint32_t)locationID {
+    // A touch in progress on this digitizer will never get its lift-off report, and stale
+    // touches are only reaped as further reports come in — which they now never will. Release
+    // whatever it was holding here, or the button stays down for good.
+    if (self.cursorTouch != nil && self.cursorTouch.locationID == locationID) {
+        [self stopCurrentGesture];
+    }
+
     [self.frameIDsByLocationID removeObjectForKey:@(locationID)];
     [self.delegate touchscreenDidDisconnectWithLocationID:locationID];
 }
@@ -232,6 +239,13 @@ static const CGFloat kPhaseMovementThreshold = 0.1;
  Promotes the cursor touch to a hold once it has stayed put for `holdDuration`.
  Evaluated on every report regardless of phase: on a noisy digitizer the phase flickers
  between moved and stationary, and a hold must not depend on catching a stationary one.
+
+ This is also the first moment in a touch at which the gesture is no longer ambiguous — a
+ scroll or a pinch would have moved by now — and therefore the earliest point at which the
+ button may safely be pressed while the finger is still down. `TUCCursorGestureLongPress` is
+ posted exactly once here to offer that; whether it actuates anything is up to the delegate's
+ mapping, since holding the button for the length of the touch is a different interaction
+ model from clicking on lift-off.
  */
 - (void)updateHoldState {
     if (self.cursorTouchDidHold
@@ -242,6 +256,7 @@ static const CGFloat kPhaseMovementThreshold = 0.1;
 
     if ([[NSDate date] timeIntervalSinceDate:self.cursorTouchStationarySinceDate] > self.holdDuration) {
         self.cursorTouchDidHold = YES;
+        [self performMouseEventForGesture:TUCCursorGestureLongPress];
     }
 }
 
@@ -279,6 +294,11 @@ static const CGFloat kPhaseMovementThreshold = 0.1;
         // terminating event (the final magnify, say) and no click may follow it.
         BOOL wasMultitouchGesture = self.identifiedMultitouchGesture != _TUCCursorGestureNone;
 
+        // Read before anything below releases the button. If the press was already actuated
+        // while the finger rested — a hold mapped to a drag — then the lift is that press's
+        // release, and adding a click on top would actuate the same touch twice.
+        BOOL didActuatePress = [[TUCCursorUtilities sharedInstance] isLeftMouseDown];
+
         if (!wasMultitouchGesture) {
             if (self.cursorTouchDidHold) {
                 [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
@@ -289,7 +309,7 @@ static const CGFloat kPhaseMovementThreshold = 0.1;
 
         [self stopCurrentGesture];
 
-        if (!wasMultitouchGesture && self.cursorTouchQualifiedForTap) {
+        if (!wasMultitouchGesture && self.cursorTouchQualifiedForTap && !didActuatePress) {
             [self performMouseEventForGesture:TUCCursorGestureTap];
         }
 
@@ -480,7 +500,10 @@ static const CGFloat kPhaseMovementThreshold = 0.1;
     switch(gesture) {
         case TUCCursorGestureTouchDown:         return TUCCursorActionMoveClickIfNeeded;
         case TUCCursorGestureTap:               return TUCCursorActionClick;
-        case TUCCursorGestureLongPress:         return TUCCursorActionClick;
+        // Nothing by default: the lift-off already produces the click, and pressing here too
+        // would actuate the touch twice. Map it to a drag to hold the button for as long as
+        // the finger rests instead.
+        case TUCCursorGestureLongPress:         return TUCCursorActionNone;
         case TUCCursorGestureDrag:              return TUCCursorActionScroll;
         case TUCCursorGestureHoldAndDrag:       return TUCCursorActionDrag;
         case TUCCursorGestureTapSecondFinger:   return TUCCursorActionSecondaryClick;

@@ -65,6 +65,10 @@ struct SettingsView: View {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.isMagnificationEnabled))
             }
             
+            Toggle(isOn: $model.isPressAndHoldEnabled) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.isPressAndHoldEnabled))
+            }
+
             Toggle(isOn: $model.isClickWindowToFrontEnabled) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.isClickWindowToFrontEnabled))
             }
