@@ -134,7 +134,10 @@ extension TouchUp {
         ])
         
         holdDuration = defaults.double(forKey: "holdDuration")
-        doubleClickDistance = defaults.double(forKey: "doubleClickDistance")
+        // A zero zone means two taps can never be close enough to double click. It used to be
+        // selectable while the distance check was broken and therefore inert, so a stored 0 is
+        // not a deliberate choice — lift it to the smallest value the slider now offers.
+        doubleClickDistance = max(1, defaults.double(forKey: "doubleClickDistance"))
         tapDistance = defaults.double(forKey: "tapDistance")
         errorResistance = defaults.integer(forKey: "errorResistance")
         ignoreOriginTouches = defaults.bool(forKey: "ignoreOriginTouches")

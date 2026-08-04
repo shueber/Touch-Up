@@ -100,17 +100,31 @@
 }
 
 
+/**
+ Advances the click sequence that gets stamped onto the next mouse event as its click state,
+ so that quick repeat taps in the same spot read as a double or triple click.
+
+ A sequence continues only while both conditions hold: the taps follow each other within the
+ system's double-click interval, and the new one lands inside `doubleClickTolerance` of the
+ previous one. Anything else starts a fresh sequence at 1, as does the fourth tap — click
+ state tops out at a triple click.
+ */
 - (void)updateCursorClickCountWithLocation:(CGPoint)aLocation {
     ++self.cursorClickCount;
-    
+
     NSTimeInterval durationSinceLastClick = [[NSDate date] timeIntervalSinceDate:self.timeOfLastClick];
-    
+
     if (durationSinceLastClick > [NSEvent doubleClickInterval] || self.cursorClickCount == 4) {
         self.cursorClickCount = 1;
     }
-    
-    else if ((aLocation.x - self.locationOfLastClick.x) > self.doubleClickTolerance
-             && (aLocation.y - self.locationOfLastClick.y) > self.doubleClickTolerance) {
+
+    // Distance from the previous click, as a radius. This used to compare the two signed
+    // axis deltas against the tolerance and require *both* to exceed it, which only ever
+    // held for a tap moving down and to the right — so in every other direction two quick
+    // taps anywhere on the glass were promoted to a double click. That is easy to trigger on
+    // a large touchscreen, where consecutive taps are naturally far apart.
+    else if (hypot(aLocation.x - self.locationOfLastClick.x,
+                   aLocation.y - self.locationOfLastClick.y) > self.doubleClickTolerance) {
         // touch is too far away
         self.cursorClickCount = 1;
     }
