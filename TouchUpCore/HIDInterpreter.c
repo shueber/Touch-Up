@@ -482,7 +482,7 @@ void DispatchTouchDataForCollection(HIDDeviceState *device, IOHIDElementRef coll
             } // kHIDPage_Digitizer
         }
     }
-    // Koordinat verisi hiç gelmemiş koleksiyon = hayalet temas
+    
         if (x < 0 || y < 0) {
             return;
         }
@@ -513,7 +513,7 @@ void DispatchTouches(HIDDeviceState *device) {
     // update the touch data
     for (CFIndex i=0; i<numElementsToPost; i++) {
         IOHIDElementRef collection = (IOHIDElementRef)CFArrayGetValueAtIndex(device->touchCollectionElements, i);
-        // Koordinat verisi hiç gelmemiş koleksiyon = hayalet temas
+        
         DispatchTouchDataForCollection(device, collection);
     }
     
