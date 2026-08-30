@@ -661,6 +661,78 @@ static CFIndex CountContactCollections(IOHIDDeviceRef dev) {
 
 
 
+#pragma mark - Vendor Quirks (multitouch wake-up)
+
+/*
+ Some HID touch panels power up in a single-point "mouse compatibility" mode and only
+ start emitting true multitouch reports after the host sends one specific HID SET_REPORT
+ (Feature) control transfer — the same request Windows' HID class driver issues on its own
+ but macOS never does. We replay that one transfer here so the panel switches to
+ multitouch before we start listening.
+
+ The SiS 0x0457/0x0819 controller is resold under many brand names (Verbatim PMT-14,
+ UPERFECT, WIMAXIT, EVICIV, ...), all sharing this VID/PID, so a single entry covers the
+ whole family. Confirmed by a USB capture of the Touch-Base UPDD driver and by a
+ standalone IOHIDManager probe: immediately after this SetReport the panel begins sending
+ 5-contact reports (report ID 0x91).
+
+ No GET_REPORT is attempted first — this SiS silicon is known to stall on one (Linux's
+ hid-multitouch.c carries HID_QUIRK_NOGET for the same vendor).
+*/
+typedef struct {
+    uint32_t    vendorID;
+    uint32_t    productID;
+    uint8_t     featureReportID;
+    uint8_t     payload[8];
+    uint8_t     payloadLength;
+    const char *description;
+} TouchDeviceQuirk;
+
+static const TouchDeviceQuirk kTouchDeviceQuirks[] = {
+    {
+        .vendorID = 0x0457, .productID = 0x0819,
+        .featureReportID = 7,
+        .payload = { 0x02, 0x01 },   // Device Mode = 2 (multi-input touchscreen), Device Identifier = 1
+        .payloadLength = 2,
+        .description = "SiS multitouch controller (Verbatim / UPERFECT / WIMAXIT / EVICIV et al.)",
+    },
+};
+
+static uint32_t CopyUInt32Property(IOHIDDeviceRef dev, CFStringRef key) {
+    uint32_t value = 0;
+    CFTypeRef ref = IOHIDDeviceGetProperty(dev, key);
+    if (ref && CFGetTypeID(ref) == CFNumberGetTypeID()) {
+        CFNumberGetValue((CFNumberRef)ref, kCFNumberSInt32Type, &value);
+    }
+    return value;
+}
+
+/*!
+ If this device matches a known quirk, send its one-time multitouch wake-up SetReport.
+ Safe to call more than once per device: the transfer is idempotent and cheap.
+ */
+static void ApplyTouchDeviceQuirks(IOHIDDeviceRef dev) {
+    uint32_t vendorID  = CopyUInt32Property(dev, CFSTR(kIOHIDVendorIDKey));
+    uint32_t productID = CopyUInt32Property(dev, CFSTR(kIOHIDProductIDKey));
+
+    for (size_t i = 0; i < sizeof(kTouchDeviceQuirks) / sizeof(kTouchDeviceQuirks[0]); i++) {
+        const TouchDeviceQuirk *q = &kTouchDeviceQuirks[i];
+        if (q->vendorID != vendorID || q->productID != productID) continue;
+
+        IOReturn r = IOHIDDeviceSetReport(dev, kIOHIDReportTypeFeature,
+                                          q->featureReportID, q->payload, q->payloadLength);
+        if (r == kIOReturnSuccess) {
+            printf("Multitouch wake-up sent to %s (0x%04x/0x%04x)\n",
+                   q->description, vendorID, productID);
+        } else {
+            fprintf(stderr, "Multitouch wake-up SetReport failed for 0x%04x/0x%04x (IOReturn 0x%08x)\n",
+                    vendorID, productID, r);
+        }
+        return;
+    }
+}
+
+
 // Allocates device state and wires up the queue + input callbacks for an interface we've
 // decided to treat as the active touchscreen. The callback context is the device ref so
 // callbacks resolve to the right per-interface state even when locationIDs collide.
@@ -668,6 +740,10 @@ static HIDDeviceState* RegisterTouchDevice(IOHIDDeviceRef dev, uint32_t location
     HIDDeviceState *device = AllocateDeviceState(dev, locationID);
     if (!device) return NULL;
     device->contactCollectionCount = contactCount;
+
+    // Some panels only emit real multitouch after a vendor-specific SetReport. Do it before
+    // the queue starts so no early single-touch-mode reports slip through.
+    ApplyTouchDeviceQuirks(dev);
 
     void *context = (void *)dev;
 
