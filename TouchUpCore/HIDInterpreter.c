@@ -748,6 +748,15 @@ static HIDDeviceState* RegisterTouchDevice(IOHIDDeviceRef dev, uint32_t location
     void *context = (void *)dev;
 
     IOHIDQueueRef queue = IOHIDQueueCreate(kCFAllocatorDefault, dev, 1000, kNilOptions);
+    if (!queue) {
+        // IOHIDQueueCreate returns NULL when the device can't be opened — most commonly
+        // because Input Monitoring hasn't been granted yet. Bail cleanly instead of
+        // dereferencing a NULL queue; the upper layer simply won't see a touchscreen.
+        fprintf(stderr, "IOHIDQueueCreate failed for locationID 0x%08x (device could not be "
+                        "opened — check Input Monitoring permission).\n", locationID);
+        DeallocateDeviceState(dev);
+        return NULL;
+    }
     IOHIDQueueRegisterValueAvailableCallback(queue, Handle_QueueValueAvailable, context);
     IOHIDQueueStart(queue);
     device->queue = queue;
