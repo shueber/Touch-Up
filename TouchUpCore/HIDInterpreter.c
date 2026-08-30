@@ -664,20 +664,26 @@ static CFIndex CountContactCollections(IOHIDDeviceRef dev) {
 #pragma mark - Vendor Quirks (multitouch wake-up)
 
 /*
- Some HID touch panels power up in a single-point "mouse compatibility" mode and only
- start emitting true multitouch reports after the host sends one specific HID SET_REPORT
- (Feature) control transfer — the same request Windows' HID class driver issues on its own
- but macOS never does. We replay that one transfer here so the panel switches to
- multitouch before we start listening.
+ HID digitizers may power up in a single-point "mouse compatibility" mode and only begin
+ emitting true multitouch reports once the host writes their "Device Mode" feature control
+ to a multi-input value. This is the standard mechanism from the HID Usage Tables
+ (Digitizers page 0x0D: usage 0x52 "Device Mode", usage 0x53 "Device Identifier"): Windows'
+ HID stack issues this SET_REPORT automatically, and Linux does the same for every
+ multitouch digitizer in hid-multitouch.c (mt_set_input_mode()). macOS does not, so we
+ replay it here before we start listening.
+
+ The report ID (7) and the two 8-bit fields written below are taken directly from this
+ panel's own report descriptor, which advertises report 7 as a feature report carrying the
+ Device Mode / Device Identifier usages. Writing Device Mode = 2 ("multiple input") plus
+ Device Identifier = 1 switches the panel into 5-contact reporting (report ID 0x91); a USB
+ capture of a working Windows driver for the same panel shows the identical transfer.
 
  The SiS 0x0457/0x0819 controller is resold under many brand names (Verbatim PMT-14,
  UPERFECT, WIMAXIT, EVICIV, ...), all sharing this VID/PID, so a single entry covers the
- whole family. Confirmed by a USB capture of the Touch-Base UPDD driver and by a
- standalone IOHIDManager probe: immediately after this SetReport the panel begins sending
- 5-contact reports (report ID 0x91).
+ whole family.
 
  No GET_REPORT is attempted first — this SiS silicon is known to stall on one (Linux's
- hid-multitouch.c carries HID_QUIRK_NOGET for the same vendor).
+ hid-multitouch.c carries a no-GET quirk for the same vendor).
 */
 typedef struct {
     uint32_t    vendorID;
