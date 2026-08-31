@@ -243,9 +243,43 @@ CFIndex ValueOfElement(HIDDeviceState *device, IOHIDElementRef element) {
 
 
 
+/*!
+ Reduces the value of a multi-sample element to its first (lowest) sample.
+ 
+ Some digitizers (e.g. the ELAN "Slice20" panel) declare axis elements with a
+ report count greater than one — a field of several sample slots — and write
+ the same coordinate into every slot. For a 16-bit x 2 field the raw value
+ becomes the true coordinate multiplied by 65537, far exceeding the element's
+ logical maximum; normalizing such a value would clamp the touch to the far
+ corner of the screen. Since a multi-sample element canonically represents one
+ coordinate per sample, only the first sample is meaningful here. Elements
+ with a single sample, signed elements, or elements whose bit size does not
+ divide evenly by the count are returned unchanged.
+ */
+static CFIndex ReduceToFirstSample(IOHIDValueRef hidValue) {
+    CFIndex value = IOHIDValueGetIntegerValue(hidValue);
+    IOHIDElementRef elem = IOHIDValueGetElement(hidValue);
+    
+    uint32_t count = IOHIDElementGetReportCount(elem);
+    if (count < 2) {
+        return value;
+    }
+    
+    CFIndex sampleBits = IOHIDElementGetReportSize(elem) / count;
+    if (sampleBits <= 0 || sampleBits >= 63 || sampleBits * count != IOHIDElementGetReportSize(elem)) {
+        return value;
+    }
+    if (IOHIDElementGetLogicalMin(elem) < 0) {
+        return value;
+    }
+    
+    return value & ((1L << sampleBits) - 1);
+}
+
+
 void StoreInputValue(HIDDeviceState *device, IOHIDValueRef hidValue) {
     
-    CFIndex value = IOHIDValueGetIntegerValue(hidValue);
+    CFIndex value = ReduceToFirstSample(hidValue);
     IOHIDElementRef elem = IOHIDValueGetElement(hidValue);
     
     CFIndex keyValue = StorageKeyForElement(elem);

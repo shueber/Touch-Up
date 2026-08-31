@@ -101,6 +101,10 @@ struct SettingsView: View {
             Toggle(isOn: $model.areAdditionalDigitizerRotationSettingsVisible) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.areAdditionalDigitizerRotationSettingsVisible))
             }
+            
+            Toggle(isOn: $model.isSeizingTouchDevices) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.isSeizingTouchDevices))
+            }
         }
     }
     
