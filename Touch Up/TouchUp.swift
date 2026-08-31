@@ -34,6 +34,8 @@ class TouchUp: NSObject, ObservableObject {
 
     @Published var areAdditionalDigitizerRotationSettingsVisible = false
 
+    @Published var isSeizingTouchDevices = false
+
 
     @Published var connectedScreens = [TUCScreen]()
     @Published var connectedDigitizers = [Digitizer]()
@@ -128,7 +130,8 @@ extension TouchUp {
             "isMagnificationEnabled" : true,
             "isClickWindowToFrontEnabled" : false,
             "isClickOnLiftEnabled" : false,
-            "areAdditionalDigitizerRotationSettingsVisible" : false
+            "areAdditionalDigitizerRotationSettingsVisible" : false,
+            "isSeizingTouchDevices" : false
         ])
         
         holdDuration = defaults.double(forKey: "holdDuration")
@@ -153,6 +156,14 @@ extension TouchUp {
         isClickWindowToFrontEnabled = defaults.bool(forKey: "isClickWindowToFrontEnabled")
         isClickOnLiftEnabled = defaults.bool(forKey: "isClickOnLiftEnabled")
         areAdditionalDigitizerRotationSettingsVisible = defaults.bool(forKey: "areAdditionalDigitizerRotationSettingsVisible")
+        isSeizingTouchDevices = defaults.bool(forKey: "isSeizingTouchDevices")
+        
+        // There is no backing property to assign to (the core only exposes the setTouchscreensSeized: method),
+        // so this cannot use the assign pattern above.
+        // Published re-emits its current value upon subscription, so this also applies the stored value at startup.
+        $isSeizingTouchDevices
+            .sink { self.touchManager.setTouchscreensSeized($0) }
+            .store(in: &observers)
     }
     
     
@@ -170,6 +181,7 @@ extension TouchUp {
         defaults.set(isClickWindowToFrontEnabled, forKey: "isClickWindowToFrontEnabled")
         defaults.set(isClickOnLiftEnabled, forKey: "isClickOnLiftEnabled")
         defaults.set(areAdditionalDigitizerRotationSettingsVisible, forKey: "areAdditionalDigitizerRotationSettingsVisible")
+        defaults.set(isSeizingTouchDevices, forKey: "isSeizingTouchDevices")
     }
 
 }
@@ -410,6 +422,10 @@ extension TouchUp {
         case \.areAdditionalDigitizerRotationSettingsVisible:
             return("Digitizer Rotation",
                    "Adds a rotation control to each touchscreen. Only needed if the digitizer orientation in does not match your screen.")
+            
+        case \.isSeizingTouchDevices:
+            return("Exclusive Device Access",
+                   "Touch Up opens the touchscreen exclusively, so macOS no longer processes its events. Enable this if the system mouse misbehaves, e.g. jumps to a corner of the screen.")
             
         default:
             return("\(keyPath)", "")

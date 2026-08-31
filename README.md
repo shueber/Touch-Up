@@ -33,6 +33,8 @@ We used the following screens for testing:
 - 3M C4667PW
 
 
+### Troubleshooting
+If your *system* mouse jumps to a corner of the screen whenever you touch the touchscreen, your screen's firmware most likely writes the same coordinate into every sample slot of a multi-slot HID field. The resulting value exceeds the range declared in the device's descriptor, and the touch handling built into macOS misinterprets it. Touch Up reads only the first sample and is not affected, but the system mouse is controlled by macOS itself and cannot be changed from user space. In this case, enable **Exclusive Device Access** in the settings so that macOS stops processing the touchscreen — Touch Up becomes the sole handler and the system mouse no longer jumps.
 
 
 ## The *TouchUpCore* Framework
