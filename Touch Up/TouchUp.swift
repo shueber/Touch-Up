@@ -420,7 +420,7 @@ extension TouchUp {
 
         case \.isMousePositionRestoredAfterTouch:
             return("Restore Mouse Position",
-                   "Return the pointer to where it was before touching, after all fingers lift.")
+                   "Return the pointer to where it was before touching, after all fingers lift and scrolling finishes.")
             
         case \.isScrollingWithOneFingerEnabled:
             return("Scroll with one finger",

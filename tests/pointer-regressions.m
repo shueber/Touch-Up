@@ -5,13 +5,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// Exercise the production manager and cursor utilities without touching devices
-// or posting OS input. Event objects remain real; only posting and reading the
-// current pointer are intercepted so event coordinates and ordering are tested.
+// Real event objects, with controllable delivery and a simulated pointer observer.
 static NSMutableArray<NSDictionary<NSString *, NSNumber *> *> *posted_events;
+static NSMutableArray<NSValue *> *pending_events;
 static CGPoint pointer_location;
 static NSUInteger cursor_reads;
 static NSUInteger closed_hid_managers;
+static BOOL defer_event_delivery;
+static CGEventTapCallBack pointer_callback;
+static void *pointer_callback_context;
+static CGEventMask pointer_event_mask;
+static CGEventTapLocation pointer_tap_location;
+static CGEventTapOptions pointer_tap_options;
 
 void OpenHIDManager(void *delegate) { abort(); }
 void CloseHIDManager(void) { closed_hid_managers++; }
@@ -22,13 +27,9 @@ static CGEventRef TestEventCreate(CGEventSourceRef source) CF_RETURNS_RETAINED {
   return CGEventCreateMouseEvent(source, kCGEventMouseMoved, pointer_location, kCGMouseButtonLeft);
 }
 
-static void TestEventPost(CGEventTapLocation tap, CGEventRef event) {
+static void applyPointerEvent(CGEventRef event) {
   CGEventType type = CGEventGetType(event);
   CGPoint location = CGEventGetLocation(event);
-  [posted_events addObject:@{
-    @"type": @(type), @"x": @(location.x), @"y": @(location.y),
-    @"click_count": @(CGEventGetIntegerValueField(event, kCGMouseEventClickState)),
-  }];
   switch (type) {
     case kCGEventMouseMoved:
     case kCGEventLeftMouseDown:
@@ -37,6 +38,10 @@ static void TestEventPost(CGEventTapLocation tap, CGEventRef event) {
     case kCGEventRightMouseUp:
     case kCGEventLeftMouseDragged:
     case kCGEventRightMouseDragged:
+    case kCGEventOtherMouseDown:
+    case kCGEventOtherMouseUp:
+    case kCGEventOtherMouseDragged:
+    case kCGEventScrollWheel:
       pointer_location = location;
       break;
     default:
@@ -44,11 +49,79 @@ static void TestEventPost(CGEventTapLocation tap, CGEventRef event) {
   }
 }
 
+static void observePointerEvent(CGEventRef event) {
+  CGEventType type = CGEventGetType(event);
+  if (pointer_callback && (pointer_event_mask & CGEventMaskBit(type))) {
+    pointer_callback(NULL, type, event, pointer_callback_context);
+  }
+}
+
+static void deliverPointerEvent(CGEventRef event) {
+  applyPointerEvent(event);
+  observePointerEvent(event);
+}
+
+static CGEventRef takeNextPostedEvent(void) CF_RETURNS_RETAINED {
+  CGEventRef event = pending_events.firstObject.pointerValue;
+  [pending_events removeObjectAtIndex:0];
+  return event;
+}
+
+static void deliverNextPostedEvent(void) {
+  CGEventRef event = takeNextPostedEvent();
+  deliverPointerEvent(event);
+  CFRelease(event);
+}
+
+static void deliverAllPostedEvents(void) {
+  while (pending_events.count) deliverNextPostedEvent();
+}
+
+static void movePhysicalPointer(CGPoint location) {
+  CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, location, kCGMouseButtonLeft);
+  CGEventSetIntegerValueField(event, kCGEventSourceUserData, 0);
+  deliverPointerEvent(event);
+  CFRelease(event);
+}
+
+static void TestEventPost(CGEventTapLocation tap, CGEventRef event) {
+  CGPoint location = CGEventGetLocation(event);
+  [posted_events addObject:@{
+    @"type": @(CGEventGetType(event)), @"x": @(location.x), @"y": @(location.y),
+    @"click_count": @(CGEventGetIntegerValueField(event, kCGMouseEventClickState)),
+    @"event_id": @(CGEventGetIntegerValueField(event, kCGEventSourceUserData)),
+  }];
+  if (defer_event_delivery) {
+    [pending_events addObject:[NSValue valueWithPointer:CGEventCreateCopy(event)]];
+  } else {
+    deliverPointerEvent(event);
+  }
+}
+
+static void TestMachPortCallback(CFMachPortRef port, void *message, CFIndex size, void *context) {}
+
+static CFMachPortRef TestEventTapCreate(CGEventTapLocation tap, CGEventTapPlacement place,
+    CGEventTapOptions options, CGEventMask mask, CGEventTapCallBack callback,
+    void *context) CF_RETURNS_RETAINED {
+  pointer_callback = callback;
+  pointer_callback_context = context;
+  pointer_event_mask = mask;
+  pointer_tap_location = tap;
+  pointer_tap_options = options;
+  return CFMachPortCreate(kCFAllocatorDefault, TestMachPortCallback, NULL, NULL);
+}
+
+static void TestEventTapEnable(CFMachPortRef tap, bool enabled) {}
+
 #define CGEventCreate TestEventCreate
 #define CGEventPost TestEventPost
+#define CGEventTapCreate TestEventTapCreate
+#define CGEventTapEnable TestEventTapEnable
 #include "../TouchUpCore/TUCCursorUtilities.m"
 #undef CGEventCreate
 #undef CGEventPost
+#undef CGEventTapCreate
+#undef CGEventTapEnable
 
 @interface PointerFixture : NSObject <TUCTouchDelegate>
 @property TUCTouchInputManager *manager;
@@ -68,8 +141,11 @@ static void TestEventPost(CGEventTapLocation tap, CGEventRef event) {
     [utils cancelMomentumScroll];
     [utils stopDraggingCursor];
     [utils stopMagnifying];
+    deliverAllPostedEvents();
+    defer_event_delivery = NO;
     posted_events = [NSMutableArray new];
-    pointer_location = CGPointMake(-240, 125);
+    pending_events = [NSMutableArray new];
+    movePhysicalPointer(CGPointMake(-240, 125));
     cursor_reads = 0;
     closed_hid_managers = 0;
 
@@ -154,10 +230,14 @@ static NSUInteger restoreCount(void) {
   return count;
 }
 
+static BOOL hasSavedPointer(PointerFixture *fixture) {
+  return [[fixture.manager valueForKey:@"hasSavedCursorLocation"] boolValue];
+}
+
 static void testTap(void) {
   PointerFixture *fixture = [PointerFixture new];
   [fixture sampleX:0 y:0 onSurface:YES];
-  check(cursor_reads == 1 && eventIs(posted_events.firstObject, kCGEventMouseMoved, CGPointMake(800, 400)),
+  check(hasSavedPointer(fixture) && eventIs(posted_events.firstObject, kCGEventMouseMoved, CGPointMake(800, 400)),
     @"touch-down saves the original pointer before moving to the touched location");
   check(restoreCount() == 0, @"pointer stays at the touch target while a finger is down");
   [fixture sampleX:0 y:0 onSurface:NO];
@@ -175,10 +255,10 @@ static void testTap(void) {
   check(posted_events.count == event_count, @"a repeated lift-off cannot create a new tap or restoration");
 
   CGPoint next_origin = CGPointMake(-600, 200);
-  pointer_location = next_origin;
+  movePhysicalPointer(next_origin);
   [fixture sampleX:10 y:10 onSurface:YES];
   [fixture sampleX:10 y:10 onSurface:NO];
-  check(CGPointEqualToPoint(pointer_location, next_origin) && cursor_reads == 2,
+  check(CGPointEqualToPoint(pointer_location, next_origin),
     @"a new touch session captures the pointer's new location");
 }
 
@@ -186,11 +266,11 @@ static void testDelayedMouseOutput(void) {
   PointerFixture *fixture = [PointerFixture new];
   fixture.touch_down_action = TUCCursorActionNone;
   [fixture sampleX:0 y:0 onSurface:YES];
-  check(cursor_reads == 0 && posted_events.count == 0, @"an action mapped to None does not capture the pointer");
+  check(!hasSavedPointer(fixture) && posted_events.count == 0, @"an action mapped to None does not capture the pointer");
   CGPoint latest_origin = CGPointMake(-400, 300);
-  pointer_location = latest_origin;
+  movePhysicalPointer(latest_origin);
   [fixture sampleX:0 y:0 onSurface:NO];
-  check(cursor_reads == 1 && posted_events.count == 3
+  check(posted_events.count == 3
     && eventIs(posted_events.lastObject, kCGEventMouseMoved, latest_origin),
     @"tap-only mapping captures immediately before the click and restores after mouse-up");
 }
@@ -200,15 +280,19 @@ static void testDisabledOutput(void) {
   fixture.manager.postMouseEvents = NO;
   [fixture sampleX:0 y:0 onSurface:YES];
   [fixture sampleX:0 y:0 onSurface:NO];
-  check(cursor_reads == 0 && posted_events.count == 0, @"debug-only touches neither capture nor restore the pointer");
+  check(!hasSavedPointer(fixture) && posted_events.count == 0, @"debug-only touches neither capture nor restore the pointer");
 
   fixture = [PointerFixture new];
   fixture.manager.restoreCursorAfterTouch = NO;
   [fixture sampleX:0 y:0 onSurface:YES];
   [fixture sampleX:0 y:0 onSurface:NO];
-  check(cursor_reads == 0 && posted_events.count == 3 && restoreCount() == 0
+  check(!hasSavedPointer(fixture) && posted_events.count == 3 && restoreCount() == 0
     && CGPointEqualToPoint(pointer_location, CGPointMake(800, 400)),
     @"turning restoration off preserves ordinary pointer-following behavior");
+  CGPoint physical_location = CGPointMake(-800, 350);
+  movePhysicalPointer(physical_location);
+  check(CGPointEqualToPoint([[TUCCursorUtilities sharedInstance] currentCursorLocation], physical_location),
+    @"with restoration off, both click events acknowledge so later physical mouse movement is observed");
 
   fixture = [PointerFixture new];
   fixture.touch_down_action = TUCCursorActionNone;
@@ -216,7 +300,7 @@ static void testDisabledOutput(void) {
   fixture.drag_action = TUCCursorActionNone;
   [fixture sampleX:0 y:0 onSurface:YES];
   [fixture sampleX:0 y:0 onSurface:NO];
-  check(cursor_reads == 0 && posted_events.count == 0, @"a touch with no mouse actions never saves or restores a position");
+  check(!hasSavedPointer(fixture) && posted_events.count == 0, @"a touch with no mouse actions never saves or restores a position");
 }
 
 static void testMultipleFingers(void) {
@@ -225,7 +309,7 @@ static void testMultipleFingers(void) {
   [fixture updateContact:7 x:0 y:0 onSurface:YES];
   [fixture updateContact:8 x:10 y:0 onSurface:YES];
   [fixture report];
-  check(cursor_reads == 1 && restoreCount() == 0, @"adding another finger does not overwrite the saved pointer");
+  check(hasSavedPointer(fixture) && restoreCount() == 0, @"adding another finger retains the saved pointer");
   [fixture updateContact:7 x:0 y:0 onSurface:NO];
   [fixture updateContact:8 x:10 y:0 onSurface:YES];
   [fixture report];
@@ -302,7 +386,7 @@ static void testDragReleaseTarget(void) {
   TUCCursorUtilities *utils = [TUCCursorUtilities sharedInstance];
   [utils dragCursorTo:CGPointMake(500, 300) phase:NSTouchPhaseBegan];
   [utils dragCursorTo:CGPointMake(600, 320) phase:NSTouchPhaseMoved];
-  pointer_location = CGPointMake(50, 50);
+  movePhysicalPointer(CGPointMake(50, 50));
   [utils stopDraggingCursor];
   check(eventIs(posted_events.lastObject, kCGEventLeftMouseUp, CGPointMake(600, 320)),
     @"drag release uses the last touch-generated drag position even if the pointer moved elsewhere");
@@ -347,27 +431,169 @@ static void testInterruptedSessions(void) {
   check(posted_events.count == count, @"lift-off after disabling output adds no mouse events");
 }
 
-static void testScrollMomentum(void) {
-  PointerFixture *fixture = [PointerFixture new];
+static NSTimer *beginScrollMomentum(PointerFixture *fixture) {
   [fixture sampleX:0 y:0 onSurface:YES];
   [fixture sampleX:4 y:0 onSurface:YES];
   [fixture sampleX:8 y:0 onSurface:YES];
-  CGPoint scroll_target = eventLocation(posted_events.lastObject);
-  check(eventCount(kCGEventScrollWheel) == 2 && restoreCount() == 0,
-    @"scrolling posts wheel events before restoring any pointer");
   [fixture sampleX:8 y:0 onSurface:NO];
-  check(restoreCount() == 1 && eventIs(posted_events.lastObject, kCGEventMouseMoved, original_location),
-    @"scroll lift-off restores the pointer after the final touch action");
+  return [[TUCCursorUtilities sharedInstance] valueForKey:@"momentumScrollTimer"];
+}
+
+static void testScrollMomentum(void) {
+  PointerFixture *fixture = [PointerFixture new];
+  NSTimer *timer = beginScrollMomentum(fixture);
   TUCCursorUtilities *utils = [TUCCursorUtilities sharedInstance];
-  NSTimer *timer = [utils valueForKey:@"momentumScrollTimer"];
-  check(timer.isValid, @"restoring the pointer preserves scroll momentum");
-  [utils updateMomentumScroll];
+  CGPoint scroll_target = eventLocation(posted_events.lastObject);
+  check(eventCount(kCGEventScrollWheel) == 3 && timer.isValid && restoreCount() == 0
+    && hasSavedPointer(fixture), @"scroll lift-off retains the saved pointer while momentum runs");
+  [utils updateMomentumScroll:timer];
   check(eventIs(posted_events.lastObject, kCGEventScrollWheel, scroll_target)
+    && CGPointEqualToPoint(pointer_location, scroll_target) && restoreCount() == 0,
+    @"momentum moves the pointer at the scroll target before the final restoration");
+
+  NSUInteger count = posted_events.count;
+  NSTimer *unrelated_timer = [NSTimer timerWithTimeInterval:1 repeats:NO block:^(NSTimer *unused) {}];
+  [utils updateMomentumScroll:unrelated_timer];
+  check(posted_events.count == count, @"a callback from another timer cannot emit momentum");
+
+  NSUInteger ticks = 0;
+  while (timer.isValid && ticks++ < 1000) [utils updateMomentumScroll:timer];
+  check(!timer.isValid && restoreCount() == 1 && !hasSavedPointer(fixture)
+    && eventIs(posted_events.lastObject, kCGEventMouseMoved, original_location)
     && CGPointEqualToPoint(pointer_location, original_location),
-    @"momentum stays at the touch scroll target after the pointer is restored elsewhere");
-  TouchInputManagerDidDisconnectTouchscreen((__bridge void *)fixture.manager, 1);
-  check(!timer.isValid && restoreCount() == 1,
-    @"disconnect after lift-off cancels momentum without repeating restoration");
+    @"natural momentum completion restores exactly once after every wheel event");
+  count = posted_events.count;
+  [utils updateMomentumScroll:timer];
+  [fixture report];
+  check(posted_events.count == count, @"a completed timer and empty report cannot move the pointer again");
+}
+
+static void testNewTouchDuringMomentum(void) {
+  for (NSNumber *mapping in @[@(TUCCursorActionNone), @(TUCCursorActionClick)]) {
+    PointerFixture *fixture = [PointerFixture new];
+    NSTimer *old_timer = beginScrollMomentum(fixture);
+    fixture.touch_down_action = mapping.integerValue;
+    [fixture sampleX:20 y:10 onSurface:YES];
+    check(!old_timer.isValid && restoreCount() == 0 && hasSavedPointer(fixture),
+      [NSString stringWithFormat:@"new touch mapped to %@ cancels inertia without restoring over the new contact", mapping]);
+    NSUInteger count = posted_events.count;
+    [[TUCCursorUtilities sharedInstance] updateMomentumScroll:old_timer];
+    check(posted_events.count == count, @"an interrupted timer cannot post into the next touch session");
+    [fixture sampleX:20 y:10 onSurface:NO];
+    check(restoreCount() == 1 && CGPointEqualToPoint(pointer_location, original_location),
+      @"the next touch retains the original pointer saved before the interrupted scroll");
+  }
+
+  PointerFixture *fixture = [PointerFixture new];
+  NSTimer *old_timer = beginScrollMomentum(fixture);
+  fixture.touch_down_action = TUCCursorActionNone;
+  fixture.tap_action = TUCCursorActionScroll;
+  [fixture sampleX:20 y:10 onSurface:YES];
+  [fixture sampleX:20 y:10 onSurface:NO];
+  check(!old_timer.isValid && ![[TUCCursorUtilities sharedInstance] valueForKey:@"momentumScrollTimer"]
+    && restoreCount() == 1 && CGPointEqualToPoint(pointer_location, original_location),
+    @"a tap mapped to Scroll cannot inherit velocity from the interrupted gesture");
+}
+
+static void testMomentumCleanup(void) {
+  NSArray<NSString *> *operations = @[@"disconnect", @"stop", @"disable mouse output"];
+  for (NSUInteger operation = 0; operation < operations.count; operation++) {
+    PointerFixture *fixture = [PointerFixture new];
+    NSTimer *timer = beginScrollMomentum(fixture);
+    switch (operation) {
+      case 0: TouchInputManagerDidDisconnectTouchscreen((__bridge void *)fixture.manager, 1); break;
+      case 1: [fixture.manager stop]; break;
+      default: fixture.manager.postMouseEvents = NO; break;
+    }
+    check(!timer.isValid && restoreCount() == 1 && !hasSavedPointer(fixture)
+      && eventIs(posted_events.lastObject, kCGEventMouseMoved, original_location),
+      [NSString stringWithFormat:@"%@ cancels outstanding momentum and restores immediately", operations[operation]]);
+    NSUInteger count = posted_events.count;
+    [[TUCCursorUtilities sharedInstance] updateMomentumScroll:timer];
+    [fixture report];
+    check(posted_events.count == count, @"cleanup cannot leave a momentum callback that moves the pointer later");
+  }
+}
+
+static void testMomentumPixelTail(void) {
+  __unused PointerFixture *fixture = [PointerFixture new];
+  TUCCursorUtilities *utils = [TUCCursorUtilities sharedInstance];
+  CGPoint target = CGPointMake(800, 400);
+  [utils scroll:CGPointMake(1, -1) phase:NSTouchPhaseMoved atLocation:target];
+  [utils scroll:CGPointZero phase:NSTouchPhaseEnded atLocation:target];
+  NSTimer *timer = [utils valueForKey:@"momentumScrollTimer"];
+  __block NSUInteger completions = 0;
+  [utils finishMomentumScrollWithCompletion:^{ completions++; }];
+  NSUInteger count = posted_events.count;
+  [utils updateMomentumScroll:timer];
+  check(!timer.isValid && completions == 1 && posted_events.count == count,
+    @"momentum finishes when decay produces zero integer pixels, without a silent fractional tail");
+  [utils finishMomentumScrollWithCompletion:^{ completions++; }];
+  check(completions == 2, @"finishing without active momentum completes immediately");
+}
+
+static void testQueuedTapSessions(void) {
+  PointerFixture *fixture = [PointerFixture new];
+  TUCCursorUtilities *utils = [TUCCursorUtilities sharedInstance];
+  [fixture sampleX:0 y:0 onSurface:YES];
+  NSUInteger reads = cursor_reads;
+  defer_event_delivery = YES;
+  [fixture sampleX:0 y:0 onSurface:NO];
+  check(!CGPointEqualToPoint(pointer_location, original_location)
+    && CGPointEqualToPoint([utils currentCursorLocation], original_location),
+    @"a queued restore supplies its logical position before WindowServer moves the pointer");
+
+  [fixture sampleX:20 y:10 onSurface:YES];
+  CGPoint second_target = CGPointMake(900, 450);
+  deliverNextPostedEvent();
+  deliverNextPostedEvent();
+  deliverNextPostedEvent();
+  check(CGPointEqualToPoint(pointer_location, original_location)
+    && CGPointEqualToPoint([utils currentCursorLocation], second_target),
+    @"an old restore acknowledgement cannot discard a newer queued touch move");
+  [fixture sampleX:20 y:10 onSurface:NO];
+  deliverAllPostedEvents();
+  check(restoreCount() == 2 && CGPointEqualToPoint(pointer_location, original_location),
+    @"back-to-back taps restore the original pointer even when the first restore was still queued");
+  check(cursor_reads == reads, @"queued touch processing never rereads a stale system pointer snapshot");
+
+  BOOL ordered_tags = YES;
+  int64_t previous_id = 0;
+  for (NSDictionary *event in posted_events) {
+    int64_t event_id = [event[@"event_id"] longLongValue];
+    if (event_id <= previous_id) ordered_tags = NO;
+    previous_id = event_id;
+  }
+  check(ordered_tags, @"every posted touch event carries a distinct ordered acknowledgement marker");
+}
+
+static void testAcknowledgementBeforePointerCommit(void) {
+  PointerFixture *fixture = [PointerFixture new];
+  TUCCursorUtilities *utils = [TUCCursorUtilities sharedInstance];
+  [fixture sampleX:0 y:0 onSurface:YES];
+  defer_event_delivery = YES;
+  [fixture sampleX:0 y:0 onSurface:NO];
+  deliverNextPostedEvent();
+  deliverNextPostedEvent();
+  CGEventRef restore = takeNextPostedEvent();
+  NSUInteger reads = cursor_reads;
+  observePointerEvent(restore);
+  check(!CGPointEqualToPoint(pointer_location, original_location)
+    && CGPointEqualToPoint([utils currentCursorLocation], original_location)
+    && cursor_reads == reads,
+    @"restore acknowledgement uses the observed event location before the system cursor snapshot commits");
+  applyPointerEvent(restore);
+  CFRelease(restore);
+
+  CGPoint physical_location = CGPointMake(-500, 220);
+  movePhysicalPointer(physical_location);
+  check(CGPointEqualToPoint([utils currentCursorLocation], physical_location),
+    @"physical mouse movement replaces the restored logical position after acknowledgement");
+  [fixture sampleX:30 y:20 onSurface:YES];
+  [fixture sampleX:30 y:20 onSurface:NO];
+  deliverAllPostedEvents();
+  check(CGPointEqualToPoint(pointer_location, physical_location),
+    @"a touch after physical mouse movement saves and restores the new position");
 }
 
 int main(void) {
@@ -382,6 +608,16 @@ int main(void) {
     testDragReleaseTarget();
     testInterruptedSessions();
     testScrollMomentum();
+    testNewTouchDuringMomentum();
+    testMomentumCleanup();
+    testMomentumPixelTail();
+    testQueuedTapSessions();
+    testAcknowledgementBeforePointerCommit();
+    check(pointer_tap_location == kCGAnnotatedSessionEventTap
+      && pointer_tap_options == kCGEventTapOptionListenOnly
+      && (pointer_event_mask & CGEventMaskBit(kCGEventScrollWheel))
+      && !(pointer_event_mask & (CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp))),
+      @"cursor tracking passively observes pointer events without monitoring keyboard input");
     printf("\n%lu checks, %lu failures\n", (unsigned long)checks, (unsigned long)failures);
   }
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

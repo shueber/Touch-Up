@@ -30,6 +30,7 @@ void SetTouchDevicesSeized(bool seize) { abort(); }
 - (void)scroll:(CGPoint)translation phase:(NSTouchPhase)phase { abort(); }
 - (void)scroll:(CGPoint)translation phase:(NSTouchPhase)phase atLocation:(CGPoint)location { abort(); }
 - (void)cancelMomentumScroll {}
+- (void)finishMomentumScrollWithCompletion:(void (^)(void))completion { completion(); }
 - (void)magnifyLocationA:(CGPoint)p1 locationB:(CGPoint)p2 relativeP1:(CGPoint)r1 relP2:(CGPoint)r2 { abort(); }
 - (void)stopMagnifying {}
 @end

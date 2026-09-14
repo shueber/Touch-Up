@@ -14,9 +14,11 @@ and cursor utilities are replaced so no device access or mouse events are possib
 Hold timing uses injected timestamps rather than sleeps.
 
 The pointer suite also compiles the production cursor utilities. It intercepts
-cursor reads and event posting to check click/drop/restoration order, multiple
-contacts, cancellation, and momentum scroll coordinates. No events reach macOS.
-Actual cross-application scroll routing remains a manual hardware check.
+cursor reads, event posting, and pointer observation to check click/drop/restoration
+order, multiple contacts, cancellation, and momentum completion. Deferred delivery
+exercises consecutive gestures before the system applies earlier events, including
+wheel events moving the pointer and older acknowledgments arriving after new posts.
+No events reach macOS. Actual cross-application routing remains a manual check.
 
 The fixtures were captured from the connected ThinkVision M14t's Wacom digitizer
 (USB `2d1f:524c`) on 2026-09-14. Report `0x0c` carries five finger collections;

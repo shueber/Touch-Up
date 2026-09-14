@@ -7,6 +7,8 @@
 
 #import "TUCCursorUtilities.h"
 
+NS_ASSUME_NONNULL_BEGIN
+
 @interface TUCCursorUtilities ()
 
 @property NSInteger cursorClickCount;
@@ -18,12 +20,29 @@
 
 @property CGPoint momentumScrollTranslation;
 @property CGPoint momentumScrollLocation;
-@property (strong) NSTimer *momentumScrollTimer;
+@property (strong, nullable) NSTimer *momentumScrollTimer;
+@property (copy, nullable) void (^momentumScrollCompletion)(void);
+
+@property (nullable) CFMachPortRef cursorEventTap;
+@property (nullable) CFRunLoopSourceRef cursorEventSource;
+@property CGPoint observedCursorLocation;
+@property CGPoint queuedCursorLocation;
+@property int64_t queuedCursorEventID;
+@property BOOL hasQueuedCursorEvent;
+@property BOOL didLogCursorTrackingFailure;
+
+- (void)observeCursorEvent:(nullable CGEventRef)event type:(CGEventType)type;
 
 @property BOOL isMagnifying;
 @property CGFloat lastPinchDistance;
 
 @end
+
+static CGEventRef _Nullable ObserveCursorEvent(CGEventTapProxy _Nullable proxy, CGEventType type,
+                                              CGEventRef _Nullable event, void *context) {
+  [(__bridge TUCCursorUtilities *)context observeCursorEvent:event type:type];
+  return event;
+}
 
 @implementation TUCCursorUtilities
 
@@ -46,11 +65,89 @@
 
 
 
+- (CGPoint)systemCursorLocation {
+  CGEventRef event = CGEventCreate(NULL);
+  CGPoint location = CGEventGetLocation(event);
+  CFRelease(event);
+  return location;
+}
+
+- (void)startObservingCursor {
+  if (self.cursorEventTap) return;
+  CGEventMask mask = CGEventMaskBit(kCGEventMouseMoved)
+    | CGEventMaskBit(kCGEventLeftMouseDown) | CGEventMaskBit(kCGEventLeftMouseUp)
+    | CGEventMaskBit(kCGEventRightMouseDown) | CGEventMaskBit(kCGEventRightMouseUp)
+    | CGEventMaskBit(kCGEventOtherMouseDown) | CGEventMaskBit(kCGEventOtherMouseUp)
+    | CGEventMaskBit(kCGEventLeftMouseDragged) | CGEventMaskBit(kCGEventRightMouseDragged)
+    | CGEventMaskBit(kCGEventOtherMouseDragged) | CGEventMaskBit(kCGEventScrollWheel)
+    | CGEventMaskBit(29); // Gesture events also carry the cursor location.
+  self.cursorEventTap = CGEventTapCreate(kCGAnnotatedSessionEventTap, kCGTailAppendEventTap,
+    kCGEventTapOptionListenOnly, mask, ObserveCursorEvent, (__bridge void *)self);
+  if (!self.cursorEventTap) {
+    if (!self.didLogCursorTrackingFailure) {
+      NSLog(@"Touch Up cannot observe pointer events; rapid-touch pointer restoration may be inaccurate. Check Input Monitoring and Accessibility permissions.");
+      self.didLogCursorTrackingFailure = YES;
+    }
+    return;
+  }
+  self.cursorEventSource = CFMachPortCreateRunLoopSource(NULL, self.cursorEventTap, 0);
+  if (!self.cursorEventSource) {
+    CFMachPortInvalidate(self.cursorEventTap);
+    CFRelease(self.cursorEventTap);
+    self.cursorEventTap = NULL;
+    return;
+  }
+  CFRunLoopAddSource(CFRunLoopGetMain(), self.cursorEventSource, kCFRunLoopCommonModes);
+  self.observedCursorLocation = [self systemCursorLocation];
+  self.queuedCursorEventID = (int64_t)arc4random_uniform(INT32_MAX) << 32;
+}
+
+- (void)observeCursorEvent:(nullable CGEventRef)event type:(CGEventType)type {
+  if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
+    self.hasQueuedCursorEvent = NO;
+    self.observedCursorLocation = [self systemCursorLocation];
+    CGEventTapEnable(self.cursorEventTap, true);
+    return;
+  }
+  self.observedCursorLocation = CGEventGetLocation(event);
+  if (self.hasQueuedCursorEvent &&
+      CGEventGetIntegerValueField(event, kCGEventSourceUserData) == self.queuedCursorEventID) {
+    self.hasQueuedCursorEvent = NO;
+  }
+}
+
 - (CGPoint)currentCursorLocation {
-    CGEventRef dummy = CGEventCreate(NULL);
-    CGPoint location = CGEventGetLocation(dummy);
-    CFRelease(dummy);
-    return location;
+  [self startObservingCursor];
+  if (!self.cursorEventTap) return [self systemCursorLocation];
+  // CGEventPost is asynchronous. A second touch must see the first touch's queued
+  // restore, even before WindowServer has moved the visible pointer there.
+  return self.hasQueuedCursorEvent ? self.queuedCursorLocation : self.observedCursorLocation;
+}
+
+- (void)postCursorEvent:(CGEventRef)event {
+  [self startObservingCursor];
+  // Core Graphics retains the first source-data value on a reused event. Tag a
+  // fresh copy so a click's down/up posts each receive their own acknowledgment.
+  CGEventRef postedEvent = CGEventCreateCopy(event);
+  if (self.cursorEventTap) {
+    self.queuedCursorEventID++;
+    self.queuedCursorLocation = CGEventGetLocation(postedEvent);
+    self.hasQueuedCursorEvent = YES;
+    CGEventSetIntegerValueField(postedEvent, kCGEventSourceUserData, self.queuedCursorEventID);
+  }
+  CGEventPost(kCGHIDEventTap, postedEvent);
+  CFRelease(postedEvent);
+}
+
+- (void)dealloc {
+  if (_cursorEventSource) {
+    CFRunLoopRemoveSource(CFRunLoopGetMain(), _cursorEventSource, kCFRunLoopCommonModes);
+    CFRelease(_cursorEventSource);
+  }
+  if (_cursorEventTap) {
+    CFMachPortInvalidate(_cursorEventTap);
+    CFRelease(_cursorEventTap);
+  }
 }
 
 
@@ -65,7 +162,7 @@
     // Keep restoration in the same posted event stream as the final click/drop.
     CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, aLocation, kCGMouseButtonLeft);
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, 0);
-    CGEventPost(kCGHIDEventTap, event);
+    [self postCursorEvent:event];
     CFRelease(event);
 }
 
@@ -77,12 +174,12 @@
     CGEventTimestamp time = CGEventGetTimestamp(event);
     CGEventSetTimestamp(event, time-1);
     
-    CGEventPost(kCGHIDEventTap, event);
+    [self postCursorEvent:event];
     CGEventSetType(event, kCGEventLeftMouseDragged);
-    CGEventPost(kCGHIDEventTap, event);
+    [self postCursorEvent:event];
     CGEventSetLocation(event, aLocation);
     CGEventSetType(event, kCGEventLeftMouseUp);
-    CGEventPost(kCGHIDEventTap, event);
+    [self postCursorEvent:event];
     
     CFRelease(event);
     //    self.isLeftMouseDown = YES;
@@ -96,9 +193,9 @@
     
     CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, aLocation, kCGMouseButtonLeft);
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, self.cursorClickCount);
-    CGEventPost(kCGHIDEventTap, event);
+    [self postCursorEvent:event];
     CGEventSetType(event, kCGEventLeftMouseUp);
-    CGEventPost(kCGHIDEventTap, event);
+    [self postCursorEvent:event];
     CFRelease(event);
     
     self.timeOfLastClick = [NSDate date];
@@ -126,9 +223,9 @@
 - (void)performSecondaryClickAt:(CGPoint)aLocation {
     CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventRightMouseDown, aLocation, kCGMouseButtonRight);
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
-    CGEventPost(kCGHIDEventTap, event);
+    [self postCursorEvent:event];
     CGEventSetType(event, kCGEventRightMouseUp);
-    CGEventPost(kCGHIDEventTap, event);
+    [self postCursorEvent:event];
     CFRelease(event);
 }
 
@@ -144,7 +241,7 @@
     if (self.isLeftMouseDown) {
         CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDragged, aLocation, kCGMouseButtonLeft);
         CGEventSetIntegerValueField(event, kCGMouseEventClickState, self.cursorClickCount);
-        CGEventPost(kCGHIDEventTap, event);
+        [self postCursorEvent:event];
         CFRelease(event);
         
     } else {
@@ -152,7 +249,7 @@
         [self updateCursorClickCountWithLocation:aLocation];
         CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, aLocation, kCGMouseButtonLeft);
         CGEventSetIntegerValueField(event, kCGMouseEventClickState, self.cursorClickCount);
-        CGEventPost(kCGHIDEventTap, event);
+        [self postCursorEvent:event];
         CFRelease(event);
         
         self.isLeftMouseDown = YES;
@@ -164,7 +261,7 @@
     if (self.isLeftMouseDown) {
         CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseUp, self.lastDragLocation, kCGMouseButtonLeft);
         CGEventSetIntegerValueField(event, kCGMouseEventClickState, self.cursorClickCount);
-        CGEventPost(kCGHIDEventTap, event);
+        [self postCursorEvent:event];
         CFRelease(event);
         
         self.isLeftMouseDown = NO;
@@ -177,46 +274,62 @@
   [self scroll:translation phase:phase atLocation:[self currentCursorLocation]];
 }
 
+- (void)postScroll:(CGPoint)translation atLocation:(CGPoint)location {
+  CGEventRef event = CGEventCreateScrollWheelEvent2(NULL, kCGScrollEventUnitPixel, 2,
+    translation.y, translation.x, 0);
+  CGEventSetLocation(event, location);
+  [self postCursorEvent:event];
+  CFRelease(event);
+}
+
 - (void)scroll:(CGPoint)translation phase:(NSTouchPhase)phase atLocation:(CGPoint)location {
-    [self stopDraggingCursor];
-    self.momentumScrollLocation = location;
-    
-    CGEventRef event = CGEventCreateScrollWheelEvent2(NULL, kCGScrollEventUnitPixel, 2, translation.y, translation.x, 0);
-    CGEventSetLocation(event, location);
-    CGEventPost(kCGHIDEventTap, event);
-    CFRelease(event);
-    
-    if (phase == NSTouchPhaseEnded) {
-        // TODO: consider sampling rate of digitizer and screen refresh rate
-        [self cancelMomentumScroll];
-        
-        self.momentumScrollTimer = [NSTimer scheduledTimerWithTimeInterval:0.01 target:self selector:@selector(updateMomentumScroll) userInfo:nil repeats:YES];
-    } else {
-        self.momentumScrollTranslation = translation;
+  CGPoint lastTranslation = self.momentumScrollTranslation;
+  [self cancelMomentumScroll];
+  [self stopDraggingCursor];
+  [self postScroll:translation atLocation:location];
+  self.momentumScrollLocation = location;
+
+  if (phase == NSTouchPhaseEnded) {
+    self.momentumScrollTranslation = lastTranslation;
+    if (fabs(lastTranslation.x) >= 1 || fabs(lastTranslation.y) >= 1) {
+      self.momentumScrollTimer = [NSTimer timerWithTimeInterval:0.01 target:self
+        selector:@selector(updateMomentumScroll:) userInfo:nil repeats:YES];
+      [[NSRunLoop mainRunLoop] addTimer:self.momentumScrollTimer forMode:NSRunLoopCommonModes];
     }
+  } else {
+    self.momentumScrollTranslation = translation;
+  }
 }
 
+- (void)updateMomentumScroll:(nullable NSTimer *)timer {
+  if (timer != self.momentumScrollTimer || !timer.isValid) return;
+  self.momentumScrollTranslation = CGPointMake(self.momentumScrollTranslation.x * 0.985,
+    self.momentumScrollTranslation.y * 0.985);
 
-
-- (void)updateMomentumScroll {
-    self.momentumScrollTranslation = CGPointMake(self.momentumScrollTranslation.x * 0.985,
-                                                 self.momentumScrollTranslation.y * 0.985);
-    
-    if (fabs(self.momentumScrollTranslation.x) < 0.1 && fabs(self.momentumScrollTranslation.y) < 0.1) {
-        [self cancelMomentumScroll];
-        return;
-    }
-    
-    [self scroll:self.momentumScrollTranslation phase:NSTouchPhaseMoved atLocation:self.momentumScrollLocation];
+  // The emitted pixel deltas are integers. Fractional tails produce no scrolling
+  // and would otherwise delay pointer restoration by another 1.5 seconds.
+  if (fabs(self.momentumScrollTranslation.x) < 1 && fabs(self.momentumScrollTranslation.y) < 1) {
+    void (^completion)(void) = self.momentumScrollCompletion;
+    [self cancelMomentumScroll];
+    if (completion) completion();
+    return;
+  }
+  [self postScroll:self.momentumScrollTranslation atLocation:self.momentumScrollLocation];
 }
 
-
+- (void)finishMomentumScrollWithCompletion:(void (^)(void))completion {
+  if (self.momentumScrollTimer.isValid) {
+    self.momentumScrollCompletion = completion;
+  } else {
+    completion();
+  }
+}
 
 - (void)cancelMomentumScroll {
-    if (self.momentumScrollTimer != nil) {
-        [self.momentumScrollTimer invalidate];
-        self.momentumScrollTimer = nil;
-    }
+  [self.momentumScrollTimer invalidate];
+  self.momentumScrollTimer = nil;
+  self.momentumScrollCompletion = nil;
+  self.momentumScrollTranslation = CGPointZero;
 }
 
 
@@ -255,7 +368,7 @@
     
     CGEventSetIntegerValueField(event, 132, phase);
     
-    CGEventPost(kCGHIDEventTap, event);
+    [self postCursorEvent:event];
     CFRelease(event);
 }
 
@@ -293,3 +406,5 @@
 }
 
 @end
+
+NS_ASSUME_NONNULL_END

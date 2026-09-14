@@ -114,6 +114,15 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
   [[TUCCursorUtilities sharedInstance] restoreCursorTo:self.savedCursorLocation];
 }
 
+- (void)finishMouseSessionAfterMomentum {
+  if (!self.mouseSessionActive) return;
+  __weak TUCTouchInputManager *weakSelf = self;
+  [[TUCCursorUtilities sharedInstance] finishMomentumScrollWithCompletion:^{
+    TUCTouchInputManager *manager = weakSelf;
+    if (manager.activeTouches.count == 0) [manager endMouseSession];
+  }];
+}
+
 - (void)setTouchscreensSeized:(BOOL)seized {
     SetTouchDevicesSeized(seized);
 }
@@ -173,11 +182,11 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
 
     [self processTouchesForCursorInput];
 
-    // The final tap/drop must be queued before returning the pointer. Secondary
-    // fingers keep the original saved position until the entire contact set ends.
+    // Momentum wheel events also move the system pointer. Keep the saved origin
+    // until both the entire contact set and all remaining scroll output finish.
     if (self.activeTouches.count == 0) {
       [self stopCurrentGesture];
-      [self endMouseSession];
+      [self finishMouseSessionAfterMomentum];
       self.cursorTouch = nil;
       self.gestureAdditionalTouch = nil;
     }
@@ -215,6 +224,9 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
     TUCTouch *touch = [self obtainTouchWithID:contactID locationID:locationID isNew:&isNewTouch];
     
     if (isNewTouch && (self.cursorTouch == nil || !self.cursorTouch.isActive)) {
+        // Cancel the previous completion before this contact can produce output,
+        // including when touch-down is mapped to None. Retain its saved origin.
+        if (self.postMouseEvents) [[TUCCursorUtilities sharedInstance] cancelMomentumScroll];
         self.cursorTouch = touch;
         self.cursorTouchQualifiedForTap = YES;
         self.cursorTouchDidHold = NO;

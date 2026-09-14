@@ -28,7 +28,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  When enabled, return the pointer to its position before touch-generated mouse
- input after the last contact ends. Disabled by default for framework clients.
+ input after the last contact and scroll momentum end. Disabled by default for
+ framework clients.
  */
 @property BOOL restoreCursorAfterTouch;
 
