@@ -108,6 +108,15 @@ struct SettingsView: View {
     
     var parameterSettings: some View {
         Group {
+          HStack {
+            Slider(value: $model.tapMovementTolerance, in: 0.5...5, step: 0.5) {
+              SettingsExplanationLabel(labels: model.uiLabels(for: \.tapMovementTolerance))
+            }
+            Text("\(model.tapMovementTolerance, specifier: "%.1f") mm")
+              .monospacedDigit()
+              .foregroundColor(.secondary)
+          }
+
             Slider(value: $model.holdDuration, in: 0.0...0.16, step: 0.02){
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.holdDuration))
             }

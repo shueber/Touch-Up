@@ -24,6 +24,7 @@ class TouchUp: NSObject, ObservableObject {
     
     @Published var holdDuration: TimeInterval = 0.1
     @Published var doubleClickDistance: CGFloat = 3 //mm
+    @Published var tapMovementTolerance: CGFloat = 2 //mm
     @Published var errorResistance: NSInteger = 0 // num of Reports to wait before cancelling a touch
     @Published var ignoreOriginTouches: Bool = false
     
@@ -157,6 +158,7 @@ extension TouchUp {
         defaults.register(defaults: [
             "holdDuration" : 0.1,
             "doubleClickDistance" : 8,
+            "tapMovementTolerance" : 2,
             "errorResistance" : 4,
             "ignoreOriginTouches" : true,
 
@@ -170,6 +172,7 @@ extension TouchUp {
         
         holdDuration = defaults.double(forKey: "holdDuration")
         doubleClickDistance = defaults.double(forKey: "doubleClickDistance")
+        tapMovementTolerance = defaults.double(forKey: "tapMovementTolerance")
         errorResistance = defaults.integer(forKey: "errorResistance")
         ignoreOriginTouches = defaults.bool(forKey: "ignoreOriginTouches")
 
@@ -178,6 +181,7 @@ extension TouchUp {
             $isPublishingMouseEventsEnabled.assign(to: \.postMouseEvents, on: touchManager),
             $holdDuration.assign(to: \.holdDuration, on: touchManager),
             $doubleClickDistance.assign(to: \.doubleClickTolerance, on: touchManager),
+            $tapMovementTolerance.assign(to: \.tapMovementTolerance, on: touchManager),
             $errorResistance.assign(to: \.errorResistance, on: touchManager),
             $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager)
         ]
@@ -198,6 +202,7 @@ extension TouchUp {
         
         defaults.set(holdDuration, forKey: "holdDuration")
         defaults.set(doubleClickDistance, forKey: "doubleClickDistance")
+        defaults.set(tapMovementTolerance, forKey: "tapMovementTolerance")
         defaults.set(errorResistance, forKey: "$errorResistance")
         defaults.set(ignoreOriginTouches, forKey: "ignoreOriginTouches")
 
@@ -435,6 +440,10 @@ extension TouchUp {
         case \.doubleClickDistance:
             return("Double Click Zone",
                    "How many mm can two taps be apart from each other to qualify double click")
+
+        case \.tapMovementTolerance:
+            return("Tap Movement Tolerance",
+                   "How far a finger can move from its starting point and still count as a tap. Increase this if taps accidentally scroll.")
             
         case \.ignoreOriginTouches:
             return("Ignore Origin Touches",

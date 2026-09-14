@@ -10,6 +10,11 @@
 #import "HIDInterpreter.h"
 #import "TUCCursorUtilities.h"
 
+static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSize) {
+  return hypot((first.x - second.x) * physicalSize.width,
+               (first.y - second.y) * physicalSize.height);
+}
+
 @interface TUCTouchInputManager ()
 
 @property NSMutableDictionary<NSNumber *, NSNumber *> *frameIDsByLocationID;
@@ -17,9 +22,12 @@
 @property (weak, nullable) TUCTouch *cursorTouch;
 @property (weak, nullable) TUCTouch *gestureAdditionalTouch;
 
-@property BOOL cursorTouchQualifiedForTap; // if the cursor entered moving state once it can no longer be interpreted as tap
+@property BOOL cursorTouchQualifiedForTap;
 @property BOOL cursorTouchDidHold; //
 @property (strong) NSDate *cursorTouchStationarySinceDate;
+@property CGPoint cursorTouchStartDigitizerPoint;
+@property CGPoint cursorTouchHoldDigitizerPoint;
+@property CGSize cursorTouchPhysicalSize;
 
 @property CGFloat pinchDistance;
 
@@ -123,9 +131,13 @@
         self.cursorTouch = touch;
         self.cursorTouchQualifiedForTap = YES;
         self.cursorTouchDidHold = NO;
-        self.cursorTouchStationarySinceDate = nil;
+        self.cursorTouchStationarySinceDate = [NSDate date];
+        self.cursorTouchStartDigitizerPoint = digitizerPoint;
+        self.cursorTouchHoldDigitizerPoint = digitizerPoint;
+        self.cursorTouchPhysicalSize = [self digitizerPhysicalSizeForLocationID:locationID];
     }
     
+    [touch setDigitizerLocation:digitizerPoint];
     [touch setLocation: point];
     [touch setIsOnSurface:isOnSurface];
     [touch setConfidenceFlag:confidenceFlag];
@@ -139,25 +151,28 @@
         
     }
     
-    if(touch.previousPhase != NSTouchPhaseEnded && !isNewTouch) {
-        // update to an existing touch... check if stationary or not
-        CGFloat digitizerRelDistance = sqrt(pow(touch.location.x - touch.previousLocation.x, 2) + pow(touch.location.y - touch.previousLocation.y, 2));
-        CGFloat screenSize = [self touchscreenForLocationID:locationID].nativePhysicalSize.width;
-        //TODO: - Make customizable in settings?
-        BOOL isStationary = (digitizerRelDistance * screenSize) < 0.1;
-//        BOOL isStationary = CGPointEqualToPoint(touch.location, touch.previousLocation);
-        
-        if (touch.uuid == self.cursorTouch.uuid) {
-            if (!isStationary) {
-                self.cursorTouchQualifiedForTap = NO;
-                self.cursorTouchStationarySinceDate = nil;
-                
-            } else if (touch.phase !=  NSTouchPhaseStationary) {
-                self.cursorTouchStationarySinceDate = [NSDate date];
-            }
+    if (!isNewTouch) {
+      if (touch == self.cursorTouch && self.cursorTouchQualifiedForTap) {
+        // Measure on the glass: display scaling and letterboxing must not change
+        // how far a finger can move before a tap becomes a scroll or drag.
+        CGFloat displacement = PhysicalDistance(digitizerPoint,
+          self.cursorTouchStartDigitizerPoint, self.cursorTouchPhysicalSize);
+        if (displacement > fmax(0, self.tapMovementTolerance)) {
+          self.cursorTouchQualifiedForTap = NO;
         }
-        
-        [touch setPhase:isStationary ? NSTouchPhaseStationary : NSTouchPhaseMoved];
+
+        // Hold timing has its own small stationary region. Incremental motion
+        // must not turn a slow scroll into hold-and-drag while still inside 2 mm.
+        CGFloat holdDisplacement = PhysicalDistance(digitizerPoint,
+          self.cursorTouchHoldDigitizerPoint, self.cursorTouchPhysicalSize);
+        if (holdDisplacement >= 0.1) {
+          self.cursorTouchHoldDigitizerPoint = digitizerPoint;
+          self.cursorTouchStationarySinceDate = [NSDate date];
+        }
+      }
+
+      BOOL isStationary = CGPointEqualToPoint(touch.location, touch.previousLocation);
+      [touch setPhase:isStationary ? NSTouchPhaseStationary : NSTouchPhaseMoved];
     }
     
     
@@ -201,15 +216,13 @@
     }
     
     
-    else if (phase == NSTouchPhaseStationary) {
-        NSTimeInterval holdDuration = 0;
-        if (self.cursorTouchStationarySinceDate != nil) {
-            holdDuration = [[NSDate date] timeIntervalSinceDate:self.cursorTouchStationarySinceDate];
-        }
-        if (self.cursorTouchQualifiedForTap && holdDuration > self.holdDuration) {
-            // the user left the finger on the screen for the min duration required to produce a hold
-            self.cursorTouchDidHold = YES;
-        }
+    if (cursorTouch.isActive && self.cursorTouchQualifiedForTap &&
+        self.cursorTouchStationarySinceDate != nil &&
+        [[NSDate date] timeIntervalSinceDate:self.cursorTouchStationarySinceDate] > self.holdDuration) {
+      self.cursorTouchDidHold = YES;
+    }
+
+    if (phase == NSTouchPhaseStationary) {
         
         [self checkForSecondaryClick];
         
@@ -263,13 +276,24 @@
             if (self.gestureAdditionalTouch.isActive) {
                 CGPoint trajectoryA = [cursorTouch trajectorySign];
                 CGPoint trajectoryB = [otherTouch trajectorySign];
+
+                // Single-finger scrolling needs tiny updates after recognition,
+                // but resting two-finger jitter must not start a pinch.
+                CGFloat movementA = PhysicalDistance(cursorTouch.digitizerLocation,
+                  cursorTouch.previousDigitizerLocation, self.cursorTouchPhysicalSize);
+                CGFloat movementB = PhysicalDistance(otherTouch.digitizerLocation,
+                  otherTouch.previousDigitizerLocation, self.cursorTouchPhysicalSize);
                 
                 
-                if (   !CGPointEqualToPoint(trajectoryA, CGPointZero)
+                if (   otherTouch.phase != NSTouchPhaseBegan
+                    && otherTouch.locationID == cursorTouch.locationID
+                    && movementA >= 0.1 && movementB >= 0.1
+                    && !CGPointEqualToPoint(trajectoryA, CGPointZero)
                     && !CGPointEqualToPoint(trajectoryB, CGPointZero)) {
                     
                     if (!CGPointEqualToPoint(trajectoryA, trajectoryB)) {
                         self.identifiedMultitouchGesture = TUCCursorGesturePinch;
+                        self.cursorTouchQualifiedForTap = NO;
                     }
                     //                    else {
                     //                        self.identifiedMultitouchGesture = TUCCursorGestureTwoFingerDrag;
@@ -298,6 +322,10 @@
     }
     
     
+    // A finger may move slightly while tapping. Only single-finger movement is
+    // deferred here; secondary clicks and pinches above can still be recognized.
+    if (self.cursorTouchQualifiedForTap) return;
+
     if (self.cursorTouchDidHold) {
         [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
     } else {
@@ -535,6 +563,27 @@
 
 #pragma mark - Screen Characteristics
 
+- (CGFloat)digitizerRotationForScreen:(TUCScreen *)screen locationID:(uint32_t)locationID {
+  CGFloat rotation = fmod(screen.rotation + [self.delegate digitizerRotationForLocationID:locationID], 360);
+  return rotation < 0 ? rotation + 360 : rotation;
+}
+
+- (CGSize)digitizerPhysicalSizeForLocationID:(uint32_t)locationID {
+  TUCScreen *screen = [self touchscreenForLocationID:locationID];
+  CGSize size = screen.nativePhysicalSize;
+  if (!isfinite(size.width) || !isfinite(size.height) || size.width <= 0 || size.height <= 0) {
+    // Some displays omit their physical size. Estimate from logical points at
+    // 72 points per inch so missing EDID data does not disable scrolling.
+    size = CGSizeMake(fmax(1, screen.frame.size.width) * 25.4 / 72,
+                      fmax(1, screen.frame.size.height) * 25.4 / 72);
+  }
+  CGFloat rotation = [self digitizerRotationForScreen:screen locationID:locationID];
+  if (rotation == 90 || rotation == 270) {
+    size = CGSizeMake(size.height, size.width);
+  }
+  return size;
+}
+
 /**
  the relative hardware points are always in the direction the digitizer is built in.
  If the display is rotated, we need to rotate these points
@@ -542,15 +591,7 @@
 - (CGPoint)convertDigitizerPointToRelativeScreenPoint:(CGPoint)devicePoint locationID:(uint32_t)locationID {
     TUCScreen *screen = [self touchscreenForLocationID:locationID];
 
-    CGFloat rotation = screen.rotation;
-
-    CGFloat extra = [[self delegate] digitizerRotationForLocationID:locationID];
-
-    rotation += extra;
-    rotation = fmod(rotation, 360);
-    if (rotation < 0) {
-        rotation += 360;
-    }
+    CGFloat rotation = [self digitizerRotationForScreen:screen locationID:locationID];
 
     // Rotate the glass-relative point into the screen's content orientation.
     CGPoint rotated;
@@ -712,6 +753,7 @@
         self.identifiedMultitouchGesture = _TUCCursorGestureNone;
         
         self.doubleClickTolerance = 5;
+        self.tapMovementTolerance = 2;
         self.holdDuration = 0.08;
         self.errorResistance = 0;
         

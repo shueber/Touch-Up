@@ -33,6 +33,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property CGFloat doubleClickTolerance;
 
 /**
+ Maximum displacement from touch-down, in millimetres, that still permits a tap.
+ Defaults to 2 mm. Once exceeded, returning to the start does not restore a tap.
+ */
+@property CGFloat tapMovementTolerance;
+
+/**
  How long the user has to hold before a drag gesture turns into holdAndDrag.
  */
 @property NSTimeInterval holdDuration;
