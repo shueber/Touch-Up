@@ -67,7 +67,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         self.model.touchManager.start()
         
         
-        if !model.isAccessibilityAccessGranted {
+        if !model.areRequiredPermissionsGranted {
             self.showPreferences(nil)
         }
         
@@ -76,6 +76,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 //        self.showDebugOverlay()
         #endif
     }
+
+  func applicationDidBecomeActive(_ notification: Notification) {
+    model.refreshPermissionStatus()
+  }
 
     func applicationWillTerminate(_ aNotification: Notification) {
         // Insert code here to tear down your application
@@ -89,6 +93,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     
     @IBAction func showPreferences(_ sender: Any?) {
+        self.model.refreshPermissionStatus()
         self.settingsWindow.makeVisible()
     }
     

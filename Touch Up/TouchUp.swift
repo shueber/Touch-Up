@@ -7,6 +7,7 @@
 
 import AppKit
 import Combine
+import IOKit.hidsystem
 import TouchUpCore
 
 class TouchUp: NSObject, ObservableObject {
@@ -51,7 +52,14 @@ class TouchUp: NSObject, ObservableObject {
     var idOfLastAddedScreen: UInt?
 
 
-    @Published var isAccessibilityAccessGranted = false
+  @Published private(set) var isAccessibilityAccessGranted = AXIsProcessTrusted()
+  @Published private(set) var isInputMonitoringAccessGranted =
+    IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+  @Published private(set) var isInputMonitoringRestartRequired = false
+
+  var areRequiredPermissionsGranted: Bool {
+    isAccessibilityAccessGranted && isInputMonitoringAccessGranted
+  }
 
 
     @objc func screenParametersDidChange() {
@@ -74,16 +82,45 @@ class TouchUp: NSObject, ObservableObject {
     }
 
     
-    func checkAccessibilityAccessGranted() {
-        let checkOptPrompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as NSString
-        self.isAccessibilityAccessGranted = AXIsProcessTrustedWithOptions([checkOptPrompt: true] as CFDictionary?)
+  func refreshPermissionStatus() {
+    isAccessibilityAccessGranted = AXIsProcessTrusted()
+
+    let inputMonitoringGranted =
+      IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+    if inputMonitoringGranted && !isInputMonitoringAccessGranted {
+      // Devices whose open was denied must be reopened by a fresh app launch.
+      isInputMonitoringRestartRequired = true
     }
-    
-    func grantAccessibilityAccess() {
-        self.touchManager.triggerSystemAccessibilityAccessAlert()
-        (NSApp.delegate as? AppDelegate)?.settingsWindow.close()
-        self.isAccessibilityAccessGranted = true
+    isInputMonitoringAccessGranted = inputMonitoringGranted
+  }
+
+  func grantAccessibilityAccess() {
+    let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+    _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
+    refreshPermissionStatus()
+    if !isAccessibilityAccessGranted {
+      openPrivacySettings("Privacy_Accessibility")
     }
+  }
+
+  func grantInputMonitoringAccess() {
+    if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeUnknown {
+      _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+    }
+    refreshPermissionStatus()
+    if !isInputMonitoringAccessGranted {
+      openPrivacySettings("Privacy_ListenEvent")
+    }
+  }
+
+  private func openPrivacySettings(_ pane: String) {
+    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") else {
+      return
+    }
+    // The floating settings window must not cover the system permission controls.
+    (NSApp.delegate as? AppDelegate)?.settingsWindow.level = .normal
+    NSWorkspace.shared.open(url)
+  }
     
     
     override init() {
@@ -100,7 +137,7 @@ class TouchUp: NSObject, ObservableObject {
         
         initPreferences()
         
-        checkAccessibilityAccessGranted()
+        refreshPermissionStatus()
     }
     
     

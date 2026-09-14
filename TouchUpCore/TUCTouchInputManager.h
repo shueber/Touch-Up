@@ -56,8 +56,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  Opt-in exclusive access. When YES, connected touchscreens are seized so macOS and other
- apps no longer receive their events — Touch Up becomes the sole handler. Pen interfaces of
- combo digitizers stay shared, so the pen keeps working through macOS. Default is NO.
+ apps no longer receive their events — Touch Up becomes the sole handler. Separate pen
+ interfaces stay shared; pen reports sharing a touch interface are also seized. Default is NO.
  Applies immediately to currently-connected devices and to future connections.
  */
 - (void)setTouchscreensSeized:(BOOL)seized;
