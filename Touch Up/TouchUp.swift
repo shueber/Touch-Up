@@ -19,6 +19,7 @@ class TouchUp: NSObject, ObservableObject {
     var observers = [AnyCancellable]()
     
     @Published var isPublishingMouseEventsEnabled = true
+  @Published var isMousePositionRestoredAfterTouch = true
     
     @Published var connectionState: ConnectionState = .disconnected
     
@@ -156,6 +157,7 @@ extension TouchUp {
         let defaults = UserDefaults.standard
         
         defaults.register(defaults: [
+            "isMousePositionRestoredAfterTouch" : true,
             "holdDuration" : 0.1,
             "doubleClickDistance" : 8,
             "tapMovementTolerance" : 2,
@@ -170,6 +172,7 @@ extension TouchUp {
             "areAdditionalDigitizerRotationSettingsVisible" : false
         ])
         
+        isMousePositionRestoredAfterTouch = defaults.bool(forKey: "isMousePositionRestoredAfterTouch")
         holdDuration = defaults.double(forKey: "holdDuration")
         doubleClickDistance = defaults.double(forKey: "doubleClickDistance")
         tapMovementTolerance = defaults.double(forKey: "tapMovementTolerance")
@@ -179,6 +182,7 @@ extension TouchUp {
 
         self.observers = [
             $isPublishingMouseEventsEnabled.assign(to: \.postMouseEvents, on: touchManager),
+            $isMousePositionRestoredAfterTouch.assign(to: \.restoreCursorAfterTouch, on: touchManager),
             $holdDuration.assign(to: \.holdDuration, on: touchManager),
             $doubleClickDistance.assign(to: \.doubleClickTolerance, on: touchManager),
             $tapMovementTolerance.assign(to: \.tapMovementTolerance, on: touchManager),
@@ -200,6 +204,7 @@ extension TouchUp {
     func savePreferences() {
         let defaults = UserDefaults.standard
         
+        defaults.set(isMousePositionRestoredAfterTouch, forKey: "isMousePositionRestoredAfterTouch")
         defaults.set(holdDuration, forKey: "holdDuration")
         defaults.set(doubleClickDistance, forKey: "doubleClickDistance")
         defaults.set(tapMovementTolerance, forKey: "tapMovementTolerance")
@@ -412,6 +417,10 @@ extension TouchUp {
         case \.isPublishingMouseEventsEnabled:
             return("Control Mouse with Touch",
                    "Turns the driver on or off.")
+
+        case \.isMousePositionRestoredAfterTouch:
+            return("Restore Mouse Position",
+                   "Return the pointer to where it was before touching, after all fingers lift.")
             
         case \.isScrollingWithOneFingerEnabled:
             return("Scroll with one finger",

@@ -67,9 +67,15 @@ struct SettingsView: View {
     }
   }
     
-    var top: some View {
-        Toggle(model.uiLabels(for: \.isPublishingMouseEventsEnabled).title, isOn: $model.isPublishingMouseEventsEnabled)
+  var top: some View {
+    Group {
+      Toggle(model.uiLabels(for: \.isPublishingMouseEventsEnabled).title, isOn: $model.isPublishingMouseEventsEnabled)
+
+      Toggle(isOn: $model.isMousePositionRestoredAfterTouch) {
+        SettingsExplanationLabel(labels: model.uiLabels(for: \.isMousePositionRestoredAfterTouch))
+      }
     }
+  }
 
     
     var gestureSettings: some View {

@@ -14,8 +14,10 @@
 @property CGPoint locationOfLastClick;
 
 @property BOOL isLeftMouseDown;
+@property CGPoint lastDragLocation;
 
 @property CGPoint momentumScrollTranslation;
+@property CGPoint momentumScrollLocation;
 @property (strong) NSTimer *momentumScrollTimer;
 
 @property BOOL isMagnifying;
@@ -56,7 +58,11 @@
 - (void)moveCursorTo:(CGPoint)aLocation {
     [self cancelMomentumScroll];
     [self stopDraggingCursor];
-    
+    [self restoreCursorTo:aLocation];
+}
+
+- (void)restoreCursorTo:(CGPoint)aLocation {
+    // Keep restoration in the same posted event stream as the final click/drop.
     CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, aLocation, kCGMouseButtonLeft);
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, 0);
     CGEventPost(kCGHIDEventTap, event);
@@ -133,8 +139,8 @@
         [self stopDraggingCursor];
         return;
     }
-    
-    
+    self.lastDragLocation = aLocation;
+
     if (self.isLeftMouseDown) {
         CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDragged, aLocation, kCGMouseButtonLeft);
         CGEventSetIntegerValueField(event, kCGMouseEventClickState, self.cursorClickCount);
@@ -156,7 +162,7 @@
 
 - (void)stopDraggingCursor {
     if (self.isLeftMouseDown) {
-        CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseUp, [self currentCursorLocation], kCGMouseButtonLeft);
+        CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseUp, self.lastDragLocation, kCGMouseButtonLeft);
         CGEventSetIntegerValueField(event, kCGMouseEventClickState, self.cursorClickCount);
         CGEventPost(kCGHIDEventTap, event);
         CFRelease(event);
@@ -168,10 +174,15 @@
 
 
 - (void)scroll:(CGPoint)translation phase:(NSTouchPhase)phase {
+  [self scroll:translation phase:phase atLocation:[self currentCursorLocation]];
+}
+
+- (void)scroll:(CGPoint)translation phase:(NSTouchPhase)phase atLocation:(CGPoint)location {
     [self stopDraggingCursor];
+    self.momentumScrollLocation = location;
     
     CGEventRef event = CGEventCreateScrollWheelEvent2(NULL, kCGScrollEventUnitPixel, 2, translation.y, translation.x, 0);
-    
+    CGEventSetLocation(event, location);
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
     
@@ -193,9 +204,10 @@
     
     if (fabs(self.momentumScrollTranslation.x) < 0.1 && fabs(self.momentumScrollTranslation.y) < 0.1) {
         [self cancelMomentumScroll];
+        return;
     }
     
-    [self scroll:self.momentumScrollTranslation phase:NSTouchPhaseMoved];
+    [self scroll:self.momentumScrollTranslation phase:NSTouchPhaseMoved atLocation:self.momentumScrollLocation];
 }
 
 

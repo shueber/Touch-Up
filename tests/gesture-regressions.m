@@ -22,11 +22,14 @@ void SetTouchDevicesSeized(bool seize) { abort(); }
 - (CGPoint)currentCursorLocation { abort(); }
 - (void)bringWindowToFrontAt:(CGPoint)location { abort(); }
 - (void)moveCursorTo:(CGPoint)location { abort(); }
+- (void)restoreCursorTo:(CGPoint)location { abort(); }
 - (void)performClickAt:(CGPoint)location { abort(); }
 - (void)performSecondaryClickAt:(CGPoint)location { abort(); }
 - (void)dragCursorTo:(CGPoint)location phase:(NSTouchPhase)phase { abort(); }
 - (void)stopDraggingCursor {}
 - (void)scroll:(CGPoint)translation phase:(NSTouchPhase)phase { abort(); }
+- (void)scroll:(CGPoint)translation phase:(NSTouchPhase)phase atLocation:(CGPoint)location { abort(); }
+- (void)cancelMomentumScroll {}
 - (void)magnifyLocationA:(CGPoint)p1 locationB:(CGPoint)p2 relativeP1:(CGPoint)r1 relP2:(CGPoint)r2 { abort(); }
 - (void)stopMagnifying {}
 @end

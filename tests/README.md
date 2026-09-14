@@ -3,6 +3,7 @@ Run these regression suites on macOS with Xcode command line tools:
 ```
 sh tests/run-hid-regressions.sh
 sh tests/run-gesture-regressions.sh
+sh tests/run-pointer-regressions.sh
 ```
 
 The gesture suite compiles the production input manager, touch model, and screen
@@ -11,6 +12,11 @@ hold-and-drag, cancellation, and physical distances across display rotations and
 letterboxing. A recording subclass captures gesture output; hardware entry points
 and cursor utilities are replaced so no device access or mouse events are possible.
 Hold timing uses injected timestamps rather than sleeps.
+
+The pointer suite also compiles the production cursor utilities. It intercepts
+cursor reads and event posting to check click/drop/restoration order, multiple
+contacts, cancellation, and momentum scroll coordinates. No events reach macOS.
+Actual cross-application scroll routing remains a manual hardware check.
 
 The fixtures were captured from the connected ThinkVision M14t's Wacom digitizer
 (USB `2d1f:524c`) on 2026-09-14. Report `0x0c` carries five finger collections;

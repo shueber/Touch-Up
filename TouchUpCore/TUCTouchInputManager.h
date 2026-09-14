@@ -26,6 +26,12 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property BOOL postMouseEvents;
 
+/**
+ When enabled, return the pointer to its position before touch-generated mouse
+ input after the last contact ends. Disabled by default for framework clients.
+ */
+@property BOOL restoreCursorAfterTouch;
+
 
 /**
  The maximal distance in mm that two taps may be apart from each other to count as double click

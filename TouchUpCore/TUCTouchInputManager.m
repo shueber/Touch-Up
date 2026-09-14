@@ -28,6 +28,11 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
 @property CGPoint cursorTouchStartDigitizerPoint;
 @property CGPoint cursorTouchHoldDigitizerPoint;
 @property CGSize cursorTouchPhysicalSize;
+@property CGPoint cursorTouchScrollLocation;
+
+@property BOOL mouseSessionActive;
+@property BOOL hasSavedCursorLocation;
+@property CGPoint savedCursorLocation;
 
 @property CGFloat pinchDistance;
 
@@ -54,6 +59,59 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
 
 - (void)stop {
     CloseHIDManager();
+    [[TUCCursorUtilities sharedInstance] cancelMomentumScroll];
+    [self stopCurrentGesture];
+    [self endMouseSession];
+    self.cursorTouch = nil;
+    self.gestureAdditionalTouch = nil;
+    [self.touchSet removeAllObjects];
+    [self.frameIDsByLocationID removeAllObjects];
+    [self.delegate touchesDidChange];
+}
+
+@synthesize postMouseEvents = _postMouseEvents;
+
+- (BOOL)postMouseEvents {
+  return _postMouseEvents;
+}
+
+- (void)setPostMouseEvents:(BOOL)enabled {
+  if (_postMouseEvents == enabled) return;
+  _postMouseEvents = enabled;
+  if (!enabled) {
+    [[TUCCursorUtilities sharedInstance] cancelMomentumScroll];
+    [self stopCurrentGesture];
+    [self endMouseSession];
+    self.cursorTouch = nil;
+    self.gestureAdditionalTouch = nil;
+  }
+}
+
+@synthesize restoreCursorAfterTouch = _restoreCursorAfterTouch;
+
+- (BOOL)restoreCursorAfterTouch {
+  return _restoreCursorAfterTouch;
+}
+
+- (void)setRestoreCursorAfterTouch:(BOOL)enabled {
+  _restoreCursorAfterTouch = enabled;
+  if (!enabled) self.hasSavedCursorLocation = NO;
+}
+
+- (void)beginMouseSessionIfNeeded {
+  if (self.mouseSessionActive) return;
+  self.mouseSessionActive = YES;
+  if (self.restoreCursorAfterTouch) {
+    self.savedCursorLocation = [[TUCCursorUtilities sharedInstance] currentCursorLocation];
+    self.hasSavedCursorLocation = YES;
+  }
+}
+
+- (void)endMouseSession {
+  self.mouseSessionActive = NO;
+  if (!self.hasSavedCursorLocation) return;
+  self.hasSavedCursorLocation = NO;
+  [[TUCCursorUtilities sharedInstance] restoreCursorTo:self.savedCursorLocation];
 }
 
 - (void)setTouchscreensSeized:(BOOL)seized {
@@ -67,6 +125,25 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
 }
 
 - (void)didDisconnectTouchscreenWithLocationID:(uint32_t)locationID {
+    BOOL cursorDisconnected = self.cursorTouch && self.cursorTouch.locationID == locationID;
+    BOOL secondaryDisconnected = self.gestureAdditionalTouch && self.gestureAdditionalTouch.locationID == locationID;
+    for (TUCTouch *touch in self.touchSet.allObjects) {
+      if (touch.locationID == locationID) {
+        touch.phase = NSTouchPhaseCancelled;
+        [self removeTouch:touch now:YES];
+      }
+    }
+    if (cursorDisconnected || secondaryDisconnected) {
+      [[TUCCursorUtilities sharedInstance] cancelMomentumScroll];
+      [self stopCurrentGesture];
+      if (cursorDisconnected) self.cursorTouch = nil;
+      self.gestureAdditionalTouch = nil;
+    }
+    if (self.activeTouches.count == 0) {
+      [[TUCCursorUtilities sharedInstance] cancelMomentumScroll];
+      [self stopCurrentGesture];
+      [self endMouseSession];
+    }
     [self.frameIDsByLocationID removeObjectForKey:@(locationID)];
     [self.delegate touchscreenDidDisconnectWithLocationID:locationID];
 }
@@ -84,7 +161,7 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
     NSInteger currentFrameID = [self currentFrameIDForLocationID:locationID];
 
     for (TUCTouch *touch in self.touchSet) {
-        if (touch.locationID != locationID) continue;
+        if (touch.locationID != locationID || !touch.isActive) continue;
 
         if (touch.lastUpdated + self.errorResistance < currentFrameID) {
             [touch setPhase:NSTouchPhaseCancelled];
@@ -92,13 +169,18 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
         }
     }
 
-    if ([[self activeTouches] count] == 0) {
-        [self stopCurrentGesture];
-    }
-
     self.frameIDsByLocationID[@(locationID)] = @(currentFrameID + 1);
 
     [self processTouchesForCursorInput];
+
+    // The final tap/drop must be queued before returning the pointer. Secondary
+    // fingers keep the original saved position until the entire contact set ends.
+    if (self.activeTouches.count == 0) {
+      [self stopCurrentGesture];
+      [self endMouseSession];
+      self.cursorTouch = nil;
+      self.gestureAdditionalTouch = nil;
+    }
 
 }
 
@@ -121,6 +203,11 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
     if (self.ignoreOriginTouches && CGPointEqualToPoint(digitizerPoint, CGPointZero)) {
         return;
     }
+
+    // Devices can repeat an off-surface slot. It is not a new tap or session.
+    if (!isOnSurface && ![self findTouchWithID:contactID locationID:locationID includingPastTouches:NO]) {
+      return;
+    }
     
     CGPoint point = [self convertDigitizerPointToRelativeScreenPoint:digitizerPoint locationID:locationID];
     
@@ -135,6 +222,7 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
         self.cursorTouchStartDigitizerPoint = digitizerPoint;
         self.cursorTouchHoldDigitizerPoint = digitizerPoint;
         self.cursorTouchPhysicalSize = [self digitizerPhysicalSizeForLocationID:locationID];
+        self.cursorTouchScrollLocation = [self convertScreenPointRelativeToAbsolute:point locationID:locationID];
     }
     
     [touch setDigitizerLocation:digitizerPoint];
@@ -231,10 +319,12 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
     
     
     else if (phase == NSTouchPhaseEnded) {
-        if (self.identifiedMultitouchGesture == _TUCCursorGestureNone ) {
+        if (self.identifiedMultitouchGesture != _TUCCursorGestureNone) {
+          [self performMouseEventForGesture:self.identifiedMultitouchGesture];
+        } else if (!self.cursorTouchQualifiedForTap) {
             if (self.cursorTouchDidHold) {
                 [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
-            } else if (!self.cursorTouchQualifiedForTap) {
+            } else {
                 [self performMouseEventForGesture:TUCCursorGestureDrag];
             }
         }
@@ -243,18 +333,18 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
         
         if (self.cursorTouchQualifiedForTap) {
             [self performMouseEventForGesture:TUCCursorGestureTap];
-        } else {
-            if (self.identifiedMultitouchGesture != _TUCCursorGestureNone) {
-                [self performMouseEventForGesture:self.identifiedMultitouchGesture];
-            }
         }
-        
+        self.cursorTouch = nil;
+        self.gestureAdditionalTouch = nil;
         return;
     }
     
     
     else if (phase == NSTouchPhaseCancelled) {
+        [[TUCCursorUtilities sharedInstance] cancelMomentumScroll];
         [self stopCurrentGesture];
+        self.cursorTouch = nil;
+        self.gestureAdditionalTouch = nil;
         return;
     }
     
@@ -375,6 +465,9 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
     TUCCursorUtilities *utils = [TUCCursorUtilities sharedInstance];
     
     TUCCursorAction action = [self actionForGesture:gesture];
+
+    if (action == TUCCursorActionNone) return;
+    [self beginMouseSessionIfNeeded];
     
     CGFloat doubleClickSpan = self.doubleClickTolerance * [[self touchscreenForLocationID:touch.locationID] pixelsPerMM];
     [[TUCCursorUtilities sharedInstance] setDoubleClickTolerance:doubleClickSpan];
@@ -418,7 +511,7 @@ static CGFloat PhysicalDistance(CGPoint first, CGPoint second, CGSize physicalSi
             CGPoint prevLocation = [self convertScreenPointRelativeToAbsolute:touch.previousLocation locationID:touch.locationID];
             CGPoint translation = CGPointMake(screenLocation.x - prevLocation.x,
                                               screenLocation.y - prevLocation.y);
-            [utils scroll:translation phase:touch.phase];
+            [utils scroll:translation phase:touch.phase atLocation:self.cursorTouchScrollLocation];
             
             break; }
             
