@@ -26,11 +26,24 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property BOOL postMouseEvents;
 
+/**
+ When enabled, return the pointer to its position before touch-generated mouse
+ input after the last contact and scroll momentum end. Disabled by default for
+ framework clients.
+ */
+@property BOOL restoreCursorAfterTouch;
+
 
 /**
  The maximal distance in mm that two taps may be apart from each other to count as double click
  */
 @property CGFloat doubleClickTolerance;
+
+/**
+ Maximum displacement from touch-down, in millimetres, that still permits a tap.
+ Defaults to 2 mm. Once exceeded, returning to the start does not restore a tap.
+ */
+@property CGFloat tapMovementTolerance;
 
 /**
  How long the user has to hold before a drag gesture turns into holdAndDrag.
@@ -56,8 +69,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  Opt-in exclusive access. When YES, connected touchscreens are seized so macOS and other
- apps no longer receive their events — Touch Up becomes the sole handler. Pen interfaces of
- combo digitizers stay shared, so the pen keeps working through macOS. Default is NO.
+ apps no longer receive their events — Touch Up becomes the sole handler. Separate pen
+ interfaces stay shared; pen reports sharing a touch interface are also seized. Default is NO.
  Applies immediately to currently-connected devices and to future connections.
  */
 - (void)setTouchscreensSeized:(BOOL)seized;

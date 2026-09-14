@@ -21,7 +21,8 @@ While the behavior of the driver is customizable, the default setting was inspir
 ### Installing the App
 - Compile the app or [download the latest notarized build here](https://github.com/shueber/Touch-Up/releases).
 - If you wish, move the app into your Applications folder and add it as a Login item.
-- Launch it and allow Accessibility access.
+- Launch it and allow Input Monitoring and Accessibility access in System Settings → Privacy & Security.
+- Quit and reopen Touch Up after enabling Input Monitoring.
 - Plug in your touchscreen and start touching.
 
 

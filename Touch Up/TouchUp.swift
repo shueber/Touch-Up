@@ -7,6 +7,7 @@
 
 import AppKit
 import Combine
+import IOKit.hidsystem
 import TouchUpCore
 
 class TouchUp: NSObject, ObservableObject {
@@ -18,11 +19,13 @@ class TouchUp: NSObject, ObservableObject {
     var observers = [AnyCancellable]()
     
     @Published var isPublishingMouseEventsEnabled = true
+  @Published var isMousePositionRestoredAfterTouch = true
     
     @Published var connectionState: ConnectionState = .disconnected
     
     @Published var holdDuration: TimeInterval = 0.1
     @Published var doubleClickDistance: CGFloat = 3 //mm
+    @Published var tapMovementTolerance: CGFloat = 2 //mm
     @Published var errorResistance: NSInteger = 0 // num of Reports to wait before cancelling a touch
     @Published var ignoreOriginTouches: Bool = false
     
@@ -51,7 +54,14 @@ class TouchUp: NSObject, ObservableObject {
     var idOfLastAddedScreen: UInt?
 
 
-    @Published var isAccessibilityAccessGranted = false
+  @Published private(set) var isAccessibilityAccessGranted = AXIsProcessTrusted()
+  @Published private(set) var isInputMonitoringAccessGranted =
+    IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+  @Published private(set) var isInputMonitoringRestartRequired = false
+
+  var areRequiredPermissionsGranted: Bool {
+    isAccessibilityAccessGranted && isInputMonitoringAccessGranted
+  }
 
 
     @objc func screenParametersDidChange() {
@@ -74,16 +84,45 @@ class TouchUp: NSObject, ObservableObject {
     }
 
     
-    func checkAccessibilityAccessGranted() {
-        let checkOptPrompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as NSString
-        self.isAccessibilityAccessGranted = AXIsProcessTrustedWithOptions([checkOptPrompt: true] as CFDictionary?)
+  func refreshPermissionStatus() {
+    isAccessibilityAccessGranted = AXIsProcessTrusted()
+
+    let inputMonitoringGranted =
+      IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+    if inputMonitoringGranted && !isInputMonitoringAccessGranted {
+      // Devices whose open was denied must be reopened by a fresh app launch.
+      isInputMonitoringRestartRequired = true
     }
-    
-    func grantAccessibilityAccess() {
-        self.touchManager.triggerSystemAccessibilityAccessAlert()
-        (NSApp.delegate as? AppDelegate)?.settingsWindow.close()
-        self.isAccessibilityAccessGranted = true
+    isInputMonitoringAccessGranted = inputMonitoringGranted
+  }
+
+  func grantAccessibilityAccess() {
+    let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+    _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
+    refreshPermissionStatus()
+    if !isAccessibilityAccessGranted {
+      openPrivacySettings("Privacy_Accessibility")
     }
+  }
+
+  func grantInputMonitoringAccess() {
+    if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeUnknown {
+      _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+    }
+    refreshPermissionStatus()
+    if !isInputMonitoringAccessGranted {
+      openPrivacySettings("Privacy_ListenEvent")
+    }
+  }
+
+  private func openPrivacySettings(_ pane: String) {
+    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") else {
+      return
+    }
+    // The floating settings window must not cover the system permission controls.
+    (NSApp.delegate as? AppDelegate)?.settingsWindow.level = .normal
+    NSWorkspace.shared.open(url)
+  }
     
     
     override init() {
@@ -100,7 +139,7 @@ class TouchUp: NSObject, ObservableObject {
         
         initPreferences()
         
-        checkAccessibilityAccessGranted()
+        refreshPermissionStatus()
     }
     
     
@@ -118,8 +157,10 @@ extension TouchUp {
         let defaults = UserDefaults.standard
         
         defaults.register(defaults: [
+            "isMousePositionRestoredAfterTouch" : true,
             "holdDuration" : 0.1,
             "doubleClickDistance" : 8,
+            "tapMovementTolerance" : 2,
             "errorResistance" : 4,
             "ignoreOriginTouches" : true,
 
@@ -131,16 +172,20 @@ extension TouchUp {
             "areAdditionalDigitizerRotationSettingsVisible" : false
         ])
         
+        isMousePositionRestoredAfterTouch = defaults.bool(forKey: "isMousePositionRestoredAfterTouch")
         holdDuration = defaults.double(forKey: "holdDuration")
         doubleClickDistance = defaults.double(forKey: "doubleClickDistance")
+        tapMovementTolerance = defaults.double(forKey: "tapMovementTolerance")
         errorResistance = defaults.integer(forKey: "errorResistance")
         ignoreOriginTouches = defaults.bool(forKey: "ignoreOriginTouches")
 
 
         self.observers = [
             $isPublishingMouseEventsEnabled.assign(to: \.postMouseEvents, on: touchManager),
+            $isMousePositionRestoredAfterTouch.assign(to: \.restoreCursorAfterTouch, on: touchManager),
             $holdDuration.assign(to: \.holdDuration, on: touchManager),
             $doubleClickDistance.assign(to: \.doubleClickTolerance, on: touchManager),
+            $tapMovementTolerance.assign(to: \.tapMovementTolerance, on: touchManager),
             $errorResistance.assign(to: \.errorResistance, on: touchManager),
             $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager)
         ]
@@ -159,8 +204,10 @@ extension TouchUp {
     func savePreferences() {
         let defaults = UserDefaults.standard
         
+        defaults.set(isMousePositionRestoredAfterTouch, forKey: "isMousePositionRestoredAfterTouch")
         defaults.set(holdDuration, forKey: "holdDuration")
         defaults.set(doubleClickDistance, forKey: "doubleClickDistance")
+        defaults.set(tapMovementTolerance, forKey: "tapMovementTolerance")
         defaults.set(errorResistance, forKey: "$errorResistance")
         defaults.set(ignoreOriginTouches, forKey: "ignoreOriginTouches")
 
@@ -370,6 +417,10 @@ extension TouchUp {
         case \.isPublishingMouseEventsEnabled:
             return("Control Mouse with Touch",
                    "Turns the driver on or off.")
+
+        case \.isMousePositionRestoredAfterTouch:
+            return("Restore Mouse Position",
+                   "Return the pointer to where it was before touching, after all fingers lift and scrolling finishes.")
             
         case \.isScrollingWithOneFingerEnabled:
             return("Scroll with one finger",
@@ -398,6 +449,10 @@ extension TouchUp {
         case \.doubleClickDistance:
             return("Double Click Zone",
                    "How many mm can two taps be apart from each other to qualify double click")
+
+        case \.tapMovementTolerance:
+            return("Tap Movement Tolerance",
+                   "How far a finger can move from its starting point and still count as a tap. Increase this if taps accidentally scroll.")
             
         case \.ignoreOriginTouches:
             return("Ignore Origin Touches",

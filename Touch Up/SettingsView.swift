@@ -12,30 +12,70 @@ struct SettingsView: View {
     
     @ObservedObject var model: TouchUp
     
-    var welcomeBanner: some View {
-        Group {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Welcome to Touch Up 🐑")
-                    .font(.largeTitle)
-                Text("Touch Up converts USB HID data from any Windows certified touchscreen to mouse events.\nInjecting mouse events requires access to accessibility APIs. You can allow this by clicking the button below.")
-            }
-            
-            HStack {
-                Spacer()
-                Button {
-                    model.grantAccessibilityAccess()
-                } label: {
-                    
-                    Text("Grant Accessibility Access")
-                }
-                .buttonStyle(BorderedProminentButtonStyle())
-            }
-        }
+  var permissionSettings: some View {
+    Group {
+      if !model.areRequiredPermissionsGranted {
+        Text("Touch Up needs both permissions to turn touchscreen input into mouse events.")
+      }
+
+      permissionRow(
+        title: "Input Monitoring",
+        explanation: "Receives touches from USB touchscreens. A digitizer can be detected even when macOS blocks its touch reports.",
+        isGranted: model.isInputMonitoringAccessGranted,
+        requestAccess: model.grantInputMonitoringAccess
+      )
+
+      if !model.isInputMonitoringAccessGranted || model.isInputMonitoringRestartRequired {
+        Text("After enabling Input Monitoring in System Settings, quit and reopen Touch Up to receive touches.")
+          .font(.callout)
+          .foregroundColor(.secondary)
+      }
+
+      permissionRow(
+        title: "Accessibility",
+        explanation: "Moves the pointer and sends clicks and gestures.",
+        isGranted: model.isAccessibilityAccessGranted,
+        requestAccess: model.grantAccessibilityAccess
+      )
     }
+  }
+
+  private func permissionRow(
+    title: String,
+    explanation: String,
+    isGranted: Bool,
+    requestAccess: @escaping () -> Void
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        Text(title)
+          .font(.headline)
+        Spacer()
+        Label(
+          isGranted ? "Granted" : "Required",
+          systemImage: isGranted ? "checkmark.circle.fill" : "exclamationmark.circle"
+        )
+        .foregroundColor(isGranted ? .green : .orange)
+      }
+      Text(explanation)
+        .font(.caption)
+        .foregroundColor(.secondary)
+      if !isGranted {
+        Button("Allow \(title)…", action: requestAccess)
+          .buttonStyle(BorderedProminentButtonStyle())
+      }
+    }
+  }
     
-    var top: some View {
-        Toggle(model.uiLabels(for: \.isPublishingMouseEventsEnabled).title, isOn: $model.isPublishingMouseEventsEnabled)
+  var top: some View {
+    Group {
+      Toggle(model.uiLabels(for: \.isPublishingMouseEventsEnabled).title, isOn: $model.isPublishingMouseEventsEnabled)
+
+      Toggle(isOn: $model.isMousePositionRestoredAfterTouch) {
+        SettingsExplanationLabel(labels: model.uiLabels(for: \.isMousePositionRestoredAfterTouch))
+      }
     }
+  }
 
     
     var gestureSettings: some View {
@@ -74,6 +114,15 @@ struct SettingsView: View {
     
     var parameterSettings: some View {
         Group {
+          HStack {
+            Slider(value: $model.tapMovementTolerance, in: 0.5...5, step: 0.5) {
+              SettingsExplanationLabel(labels: model.uiLabels(for: \.tapMovementTolerance))
+            }
+            Text("\(model.tapMovementTolerance, specifier: "%.1f") mm")
+              .monospacedDigit()
+              .foregroundColor(.secondary)
+          }
+
             Slider(value: $model.holdDuration, in: 0.0...0.16, step: 0.02){
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.holdDuration))
             }
@@ -133,15 +182,8 @@ struct SettingsView: View {
     var container: some View {
         if #available(macOS 13.0, *) {
             return Form {
-                if !model.isAccessibilityAccessGranted {
-                    Section {
-                        welcomeBanner
-                    } footer: {
-                        Rectangle()
-                            .frame(width:0, height:0)
-                            .foregroundColor(.clear)
-                    }
-
+                Section("Permissions") {
+                    permissionSettings
                 }
                 
                 Section {
@@ -175,6 +217,10 @@ struct SettingsView: View {
 
         } else {
             return List {
+                LegacySection(title: "Permissions") {
+                    permissionSettings
+                }
+
                 LegacySection {
                     top
                 }

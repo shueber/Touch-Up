@@ -55,6 +55,10 @@ typedef NS_ENUM(NSUInteger, TUCCursorAction) {
 @property (nonatomic) CGPoint location;
 @property CGPoint previousLocation;
 
+/// Normalized positions on the digitizer glass, before rotation and letterboxing.
+@property (nonatomic) CGPoint digitizerLocation;
+@property CGPoint previousDigitizerLocation;
+
 @property NSInteger lastUpdated; // the page ID during last update
 
 

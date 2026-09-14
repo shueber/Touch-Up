@@ -64,6 +64,17 @@
     _location = location;
 }
 
+@synthesize digitizerLocation = _digitizerLocation;
+
+- (CGPoint)digitizerLocation {
+  return _digitizerLocation;
+}
+
+- (void)setDigitizerLocation:(CGPoint)location {
+  _previousDigitizerLocation = _digitizerLocation;
+  _digitizerLocation = location;
+}
+
 
 
 #pragma mark - Gesture Detection

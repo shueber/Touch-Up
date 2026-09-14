@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+test_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+project_dir=$(CDPATH= cd -- "$test_dir/.." && pwd)
+build_dir=$(mktemp -d "${TMPDIR:-/tmp}/touch-up-pointer-tests.XXXXXX")
+trap 'rm -rf "$build_dir"' EXIT HUP INT TERM
+
+clang -fobjc-arc -fblocks -Wall -Wextra -Wno-unused-parameter \
+  -Wno-unused-variable -Wno-unused-but-set-variable -Wno-format \
+  -Wno-objc-missing-property-synthesis \
+  -I "$project_dir" \
+  "$test_dir/pointer-regressions.m" \
+  "$project_dir/TouchUpCore/TUCTouchInputManager.m" \
+  "$project_dir/TouchUpCore/TUCTouch.m" \
+  "$project_dir/TouchUpCore/TUCScreen.m" \
+  -framework AppKit -framework CoreGraphics \
+  -o "$build_dir/pointer-regressions"
+
+"$build_dir/pointer-regressions"

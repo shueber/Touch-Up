@@ -17,7 +17,8 @@ void CloseHIDManager(void);
 
 /// Opt-in: when enabled, accepted touch interfaces are opened exclusively (seized) so
 /// macOS and other apps stop receiving their events — Touch Up becomes the sole handler.
-/// Applies to currently-connected and future devices. Pen interfaces stay shared.
+/// Applies to currently-connected and future devices. Separate pen interfaces stay
+/// shared; pen reports on the selected touch interface are seized along with touch.
 void SetTouchDevicesSeized(bool seize);
 
 #endif /* HIDInterpreter_h */
