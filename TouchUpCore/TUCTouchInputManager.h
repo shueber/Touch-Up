@@ -45,6 +45,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property CGFloat stationaryThreshold;
 
 /**
+ Width in points of a border along each screen edge in which the cursor is never posted.
+ Touches inside this border are pushed inwards to its inner edge. The default value is 0 (off).
+ */
+@property CGFloat edgeDeadZone;
+
+/**
  If a touch is no longer reported by the screen, wait for this number of incoming reports bevore deleting it from the touch set.
  */
 @property NSInteger errorResistance;

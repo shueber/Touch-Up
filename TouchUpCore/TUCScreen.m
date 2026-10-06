@@ -172,6 +172,19 @@
     return absLoc;
 }
 
+- (CGPoint)clampRelativePoint:(CGPoint)relativePoint toEdgeInset:(CGFloat)inset {
+    if (inset <= 0 || self.frame.size.width <= 0 || self.frame.size.height <= 0) {
+        return relativePoint;
+    }
+
+    CGFloat insetX = MIN(inset / self.frame.size.width, 0.5);
+    CGFloat insetY = MIN(inset / self.frame.size.height, 0.5);
+
+    return CGPointMake(MAX(insetX, MIN(1.0 - insetX, relativePoint.x)),
+                       MAX(insetY, MIN(1.0 - insetY, relativePoint.y)));
+}
+
+
 - (CGPoint)convertGlassPointToContentPoint:(CGPoint)glassPoint {
     CGFloat glassAspect   = self.nativeResolution.width / self.nativeResolution.height;
     CGFloat contentAspect = self.frame.size.width / self.frame.size.height;

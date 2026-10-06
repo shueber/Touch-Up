@@ -24,6 +24,7 @@ class TouchUp: NSObject, ObservableObject {
     @Published var holdDuration: TimeInterval = 0.1
     @Published var doubleClickDistance: CGFloat = 3 //mm
     @Published var stationaryThreshold: CGFloat = 0.2 // accepted jitter [mm] to still count as stationary
+    @Published var edgeDeadZone: CGFloat = 0 // border along the screen edges [pt] in which the cursor is never posted
     @Published var errorResistance: NSInteger = 0 // num of Reports to wait before cancelling a touch
     @Published var ignoreOriginTouches: Bool = false
     
@@ -123,6 +124,7 @@ extension TouchUp {
             "holdDuration" : 0.1,
             "doubleClickDistance" : 8,
             "stationaryThreshold" : 0.1,
+            "edgeDeadZone" : 0,
             "errorResistance" : 4,
             "ignoreOriginTouches" : true,
 
@@ -138,6 +140,7 @@ extension TouchUp {
         holdDuration = defaults.double(forKey: "holdDuration")
         doubleClickDistance = defaults.double(forKey: "doubleClickDistance")
         stationaryThreshold = defaults.double(forKey: "stationaryThreshold")
+        edgeDeadZone = defaults.double(forKey: "edgeDeadZone")
         errorResistance = defaults.integer(forKey: "errorResistance")
         ignoreOriginTouches = defaults.bool(forKey: "ignoreOriginTouches")
         isExclusiveAccessEnabled = defaults.bool(forKey: "isExclusiveAccessEnabled")
@@ -148,6 +151,7 @@ extension TouchUp {
             $holdDuration.assign(to: \.holdDuration, on: touchManager),
             $doubleClickDistance.assign(to: \.doubleClickTolerance, on: touchManager),
             $stationaryThreshold.assign(to: \.stationaryThreshold, on: touchManager),
+            $edgeDeadZone.assign(to: \.edgeDeadZone, on: touchManager),
             $errorResistance.assign(to: \.errorResistance, on: touchManager),
             $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager),
             
@@ -173,6 +177,7 @@ extension TouchUp {
         defaults.set(holdDuration, forKey: "holdDuration")
         defaults.set(doubleClickDistance, forKey: "doubleClickDistance")
         defaults.set(stationaryThreshold, forKey: "stationaryThreshold")
+        defaults.set(edgeDeadZone, forKey: "edgeDeadZone")
         defaults.set(errorResistance, forKey: "errorResistance")
         defaults.set(ignoreOriginTouches, forKey: "ignoreOriginTouches")
         defaults.set(isExclusiveAccessEnabled, forKey: "isExclusiveAccessEnabled")
@@ -415,6 +420,10 @@ extension TouchUp {
         case \.stationaryThreshold:
             return("Jitter Tolerance",
                    "Increase, if taps and long presses are not registering reliably; decrease for more responsive dragging.")
+
+        case \.edgeDeadZone:
+            return("Edge Dead Zone",
+                   "Increase this value, to prevent touches from triggering mouse events at the screen edge.")
 
         case \.ignoreOriginTouches:
             return("Ignore Origin Touches",

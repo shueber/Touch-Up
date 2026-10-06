@@ -343,8 +343,8 @@
 - (void)performMouseEventForGesture:(TUCCursorGesture)gesture {
     TUCTouch *touch = self.cursorTouch;
     
-    CGPoint screenLocation = [self convertScreenPointRelativeToAbsolute:touch.location locationID:touch.locationID];
-    CGPoint location2ndFinger = [self convertScreenPointRelativeToAbsolute:self.gestureAdditionalTouch.location locationID:touch.locationID];
+    CGPoint screenLocation = [self clampScreenPointRelativeToAbsolute:touch.location locationID:touch.locationID];
+    CGPoint location2ndFinger = [self clampScreenPointRelativeToAbsolute:self.gestureAdditionalTouch.location locationID:touch.locationID];
     
     TUCCursorUtilities *utils = [TUCCursorUtilities sharedInstance];
     
@@ -389,7 +389,7 @@
             break;
             
         case TUCCursorActionScroll: {
-            CGPoint prevLocation = [self convertScreenPointRelativeToAbsolute:touch.previousLocation locationID:touch.locationID];
+            CGPoint prevLocation = [self clampScreenPointRelativeToAbsolute:touch.previousLocation locationID:touch.locationID];
             CGPoint translation = CGPointMake(screenLocation.x - prevLocation.x,
                                               screenLocation.y - prevLocation.y);
             [utils scroll:translation phase:touch.phase];
@@ -579,6 +579,14 @@
 
 
 
+- (CGPoint)clampScreenPointRelativeToAbsolute:(CGPoint)relativePoint locationID:(uint32_t)locationID {
+    TUCScreen *screen = [self touchscreenForLocationID:locationID];
+    CGPoint clamped = [screen clampRelativePoint:relativePoint toEdgeInset:self.edgeDeadZone];
+    return [screen convertPointRelativeToAbsolute:clamped];
+}
+
+
+
 - (TUCScreen *)touchscreenForLocationID:(uint32_t)locationID {
     if (self.delegate != nil) {
         return [self.delegate touchscreenForLocationID:locationID];
@@ -700,6 +708,7 @@
 
 
 
+
 #pragma mark -
 
 - (instancetype)init {
@@ -716,6 +725,7 @@
         self.doubleClickTolerance = 5;
         self.holdDuration = 0.08;
         self.stationaryThreshold = 0.1;
+        self.edgeDeadZone = 0;
         self.errorResistance = 0;
         
         self.ignoreOriginTouches = NO;

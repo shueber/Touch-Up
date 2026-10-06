@@ -98,6 +98,10 @@ struct SettingsView: View {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.stationaryThreshold))
             }
             
+            Slider(value: $model.edgeDeadZone, in: 0...30, step: 5) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.edgeDeadZone))
+            }
+
             Toggle(isOn: $model.ignoreOriginTouches) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.ignoreOriginTouches))
             }

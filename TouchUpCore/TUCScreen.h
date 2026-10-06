@@ -60,6 +60,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (CGFloat)pixelsPerMM;
 - (CGPoint)convertPointRelativeToAbsolute:(CGPoint)relativePoint;
 
+/// Clamps a normalized point on this screen  inwards, so that it keeps at least
+/// `inset` distance (smaller 0.5) to every screen edge. Return an releative screen point.
+- (CGPoint)clampRelativePoint:(CGPoint)relativePoint toEdgeInset:(CGFloat)inset;
+
 /// Maps a point normalised over the full panel glass (in this screen's orientation) to one
 /// normalised over the letterboxed content rectangle macOS actually draws
 /// The result is clamped to [0,1]; touches on the bars snap to the edge.
