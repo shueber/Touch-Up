@@ -22,7 +22,7 @@ struct DebugView: View {
     init(model: TouchUp, locationID: HIDLocationID?, closeAction: @escaping ()->Void) {
         self.model = model
         self.locationID = locationID
-        self.pixelsPerMM = model.touchscreen(forLocationID: 0)?.pixelsPerMM() ?? 30
+        self.pixelsPerMM = model.touchscreen(forLocationID: locationID ?? 0)?.pixelsPerMM() ?? 30
         self.closeAction = closeAction
     }
     
@@ -66,7 +66,7 @@ struct DebugView: View {
                                 .foregroundColor(colorForPhase(point.phase))
                                 .border(Color.gray, width: point.confidenceFlag ? 5: 0)
                                 .opacity(point.isActive() ? 1 : 0.5)
-                                .frame(width: 16 * pixelsPerMM, height: 16 * pixelsPerMM)
+                                .frame(width: 8 * pixelsPerMM, height: 8 * pixelsPerMM)
                                 .position(x: geo.size.width * point.location.x,
                                           y: geo.size.height * point.location.y)
                             
