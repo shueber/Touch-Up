@@ -474,6 +474,10 @@ void DispatchTouchDataForCollection(HIDDeviceState *device, IOHIDElementRef coll
             } // kHIDPage_Digitizer
         }
     }
+    
+        if (x < 0 || y < 0) {
+            return;
+        }
     TouchInputManagerUpdateTouchPosition(gTouchManager, device->locationID, contactID, x, y, (int)tipSwitch, (int)isValid);
     
     //    if (width != kCFNotFound && height != kCFNotFound && azimuth != kCFNotFound) {
@@ -501,6 +505,7 @@ void DispatchTouches(HIDDeviceState *device) {
     // update the touch data
     for (CFIndex i=0; i<numElementsToPost; i++) {
         IOHIDElementRef collection = (IOHIDElementRef)CFArrayGetValueAtIndex(device->touchCollectionElements, i);
+        
         DispatchTouchDataForCollection(device, collection);
     }
     
@@ -585,7 +590,7 @@ static void Handle_InputValueCallback (
         device->areElementRefsSet = TRUE;
     }
     
-    //PrintInput(inIOHIDValueRef);
+    PrintInput(inIOHIDValueRef);
     IOHIDElementRef elem = IOHIDValueGetElement(inIOHIDValueRef);
     
     Boolean added = IOHIDQueueContainsElement(device->queue, elem);
