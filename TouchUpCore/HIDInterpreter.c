@@ -14,6 +14,11 @@
 
 #include <CoreGraphics/CoreGraphics.h>
 
+// HID Digitizer "Input Mode" usage (0x52), missing from the SDK's IOHIDUsageTables.h
+#ifndef kHIDUsage_Dig_InputMode
+#define kHIDUsage_Dig_InputMode 0x52
+#endif
+
 #pragma mark - Per-Device State
 
 #define kMaxTouchscreens 4
@@ -321,18 +326,20 @@ void StoreInputValue(HIDDeviceState *device, IOHIDValueRef hidValue) {
  */
 void IdentifyElements(HIDDeviceState *device, IOHIDElementRef anyElement, Boolean printTree) {
     
+    // Walk up to the nearest *Application* collection, not just the nearest collection.
+    // Panels whose finger data sits in logical collections nested under the application
+    // collection would otherwise stop at a logical collection, find no logical children,
+    // and dispatch no touches at all.
     IOHIDElementRef applicationCollection = anyElement;
-    IOHIDElementType type = kIOHIDElementTypeOutput;
-    
-    while (type != kIOHIDElementTypeCollection) {
-        IOHIDElementRef next = IOHIDElementGetParent(applicationCollection);
-        if (next) {
-            applicationCollection = next;
-            type = IOHIDElementGetType(applicationCollection);
-        } else {
+    while (applicationCollection) {
+        if (IOHIDElementGetType(applicationCollection) == kIOHIDElementTypeCollection &&
+            IOHIDElementGetCollectionType(applicationCollection) == kIOHIDElementCollectionTypeApplication) {
             break;
         }
+        applicationCollection = IOHIDElementGetParent(applicationCollection);
     }
+    if (!applicationCollection) applicationCollection = anyElement;
+
     device->applicationCollectionElement = applicationCollection;
     
     
@@ -340,7 +347,8 @@ void IdentifyElements(HIDDeviceState *device, IOHIDElementRef anyElement, Boolea
     CFIndex numChildren = CFArrayGetCount(children);
     
     if (printTree) {
-        printf("# parent (type %u) has %ld children:\n", type, numChildren);
+        printf("# parent (type %u) has %ld children:\n",
+               (unsigned)IOHIDElementGetType(applicationCollection), numChildren);
     }
     
     
@@ -642,6 +650,8 @@ static void Handle_InputValueCallback (
         IOHIDElementRef e = IOHIDValueGetElement(inIOHIDValueRef);
         IdentifyElements(device, e, TRUE);
         device->areElementRefsSet = TRUE;
+        printf("[IdentifyElements] DONE touchCollectionElements=%ld\n",
+               (long)CFArrayGetCount(device->touchCollectionElements));
     }
     
     //PrintInput(inIOHIDValueRef);
@@ -695,6 +705,67 @@ static CFIndex CountContactCollections(IOHIDDeviceRef dev) {
 
 
 
+/**
+ Windows-spec panels boot in single-touch absolute-mouse emulation and only emit real
+ multitouch digitizer reports after the host writes the Digitizer Configuration feature
+ report with Input Mode (0x52) = Multiple Input. Windows does this during enumeration;
+ macOS never does, so those panels appear dead. We write { InputMode=2 (multi),
+ DeviceIndex=0 } to the Configuration (0x02) application collection's feature report.
+
+ Must run before IOHIDQueueCreate(); closing the device afterwards would stop reporting,
+ so we only open (idempotent) and never close here.
+ */
+static void WriteDigitizerInputMode(IOHIDDeviceRef dev) {
+    CFArrayRef elements = IOHIDDeviceCopyMatchingElements(dev, NULL, kIOHIDOptionsTypeNone);
+    if (!elements) return;
+
+    IOHIDElementRef inputModeElement = NULL;
+    CFIndex count = CFArrayGetCount(elements);
+    for (CFIndex i = 0; i < count; i++) {
+        IOHIDElementRef el = (IOHIDElementRef)CFArrayGetValueAtIndex(elements, i);
+        if (IOHIDElementGetUsagePage(el) == kHIDPage_Digitizer &&
+            IOHIDElementGetUsage(el) == kHIDUsage_Dig_InputMode) {
+            inputModeElement = el;
+            break;
+        }
+    }
+
+    if (inputModeElement) {
+        IOReturn openResult = IOHIDDeviceOpen(dev, kIOHIDOptionsTypeNone);
+        if (openResult == kIOReturnSuccess || openResult == kIOReturnExclusiveAccess) {
+            uint8_t payload[2] = { 2, 0 }; // Multiple Input mode, device index 0
+            uint8_t report[] = { 0x00, 2, 0 }; // byte 0 is padding for the report-ID prefix
+            IOHIDElementRef parent = IOHIDElementGetParent(inputModeElement);
+            while (parent) {
+                if (IOHIDElementGetType(parent) == kIOHIDElementTypeCollection &&
+                    IOHIDElementGetCollectionType(parent) == kIOHIDElementCollectionTypeApplication) {
+                    break;
+                }
+                parent = IOHIDElementGetParent(parent);
+            }
+            uint32_t reportID = parent ? (uint32_t)IOHIDElementGetReportID(parent) : 0;
+            CFIndex reportSize = parent ? IOHIDElementGetReportSize(parent) / 8 : 0;
+            if (reportSize == 2) {
+                report[0] = 0; // no padding needed when the size matches the payload
+            }
+
+            IOReturn r = IOHIDDeviceSetReport(dev, kIOHIDReportTypeFeature, reportID,
+                                              report, (CFIndex)sizeof(report));
+            if (r != kIOReturnSuccess) {
+                r = IOHIDDeviceSetReport(dev, kIOHIDReportTypeFeature, reportID,
+                                         payload, (CFIndex)sizeof(payload));
+            }
+            printf("Set digitizer Input Mode on report 0x%02lx: IOReturn 0x%08x\n",
+                   (unsigned long)reportID, r);
+        } else {
+            fprintf(stderr, "Failed to open device for Input Mode write (IOReturn 0x%08x)\n", openResult);
+        }
+    }
+
+    CFRelease(elements);
+}
+
+
 // Allocates device state and wires up the queue + input callbacks for an interface we've
 // decided to treat as the active touchscreen. The callback context is the device ref so
 // callbacks resolve to the right per-interface state even when locationIDs collide.
@@ -705,7 +776,14 @@ static HIDDeviceState* RegisterTouchDevice(IOHIDDeviceRef dev, uint32_t location
 
     void *context = (void *)dev;
 
+    WriteDigitizerInputMode(dev);
+
     IOHIDQueueRef queue = IOHIDQueueCreate(kCFAllocatorDefault, dev, 1000, kNilOptions);
+    if (!queue) {
+        fprintf(stderr, "Failed to create HID queue for device 0x%08x (missing Input Monitoring permission?).\n", locationID);
+        DeallocateDeviceState(dev);
+        return NULL;
+    }
     IOHIDQueueRegisterValueAvailableCallback(queue, Handle_QueueValueAvailable, context);
     IOHIDQueueStart(queue);
     device->queue = queue;
@@ -714,6 +792,13 @@ static HIDDeviceState* RegisterTouchDevice(IOHIDDeviceRef dev, uint32_t location
     IOHIDDeviceRegisterInputValueCallback(dev, Handle_InputValueCallback, context);
 
     ApplySeizeState(device);
+
+    // Queue-based delivery needs an open device; if nothing opened it yet (no seize,
+    // no Input Mode write on this panel), the queue silently delivers nothing.
+    IOReturn openR = IOHIDDeviceOpen(dev, kIOHIDOptionsTypeNone);
+    printf("RegisterTouchDevice: IOHIDDeviceOpen -> 0x%08x (seized=%d, contactCollections=%ld)\n",
+           openR, device->seized, (long)contactCount);
+
     return device;
 }
 
@@ -836,8 +921,14 @@ static CFMutableDictionaryRef CreateDeviceMatchingDictionary(UInt32 inUsagePage,
 
 void OpenHIDManager(void *delegate) {
     gTouchManager = delegate;
-    
-    
+
+    // Prompt for Input Monitoring (TCC). Without it the HID manager never delivers
+    // input values, and macOS won't even list the app in Privacy & Security unless
+    // it actively requests access.
+    if (!IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)) {
+        fprintf(stderr, "Input Monitoring access not (yet) granted.\n");
+    }
+
     gHidManager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
     
     if (CFGetTypeID(gHidManager) != IOHIDManagerGetTypeID()) {
