@@ -25,7 +25,32 @@
 
 @property TUCCursorGesture identifiedMultitouchGesture;
 
+// Multi-finger swipe tracking. `swipeStartPoints` maps each tracked touch to the relative
+// screen point it had when tracking began; the gesture fires once the average travel of all
+// tracked fingers exceeds `swipeThreshold` mm in one direction.
+@property BOOL swipeTrackingActive;
+@property BOOL swipeShortcutFired;
+@property (strong) NSMutableDictionary<NSUUID *, NSValue *> *swipeStartPoints;
+@property (strong) NSMutableSet<NSUUID *> *swipeTrackedUUIDs;
+
+// Tap / long-press detection state for the same multi-finger sessions.
+// A session becomes a tap if the fingers barely moved and lifted quickly,
+// a long-press if they stayed still past `longPressDuration`, and a swipe
+// if they travelled past `swipeThreshold`. The first match wins: once a
+// long-press began, swipe identification is suspended; a recognized swipe
+// cancels tap/long-press evaluation.
+@property (strong) NSDate *multiFingerSessionStartDate;
+@property NSInteger multiFingerSessionMaxCount;
+@property BOOL keyboardHoldActive;
+@property TUCCursorGesture activeKeyboardHoldGesture;
+
 @end
+
+
+// Average travel below this (mm) still counts as "stationary" for tap / long-press.
+static const CGFloat kTapTravelThresholdMM = 3.0;
+// A multi-finger session that lifts faster than this (s) counts as a tap.
+static const NSTimeInterval kTapMaxDuration = 0.35;
 
 
 @implementation TUCTouchInputManager
@@ -191,9 +216,18 @@
     }
     
     TUCTouch *cursorTouch = self.cursorTouch;
-    
-    
-    NSArray<TUCTouch *> *touches = [[self activeTouches] allObjects];
+
+    NSSet<TUCTouch *> *activeTouches = [self activeTouches];
+
+    // Three or more fingers (or an already latched swipe) leave the normal
+    // cursor/scroll/click pipeline: all mouse events are suppressed until the
+    // fingers that started the swipe have lifted again.
+    if ([self shouldHandleMultiFingerSwipes:activeTouches]) {
+        [self handleMultiFingerSwipesWithTouches:activeTouches];
+        return;
+    }
+
+    NSArray<TUCTouch *> *touches = [activeTouches allObjects];
     NSTouchPhase phase = cursorTouch.phase;
     
     
@@ -340,6 +374,257 @@
 }
 
 
+#pragma mark - Multi-Finger Gestures
+
+/**
+ Decides whether the current touch configuration belongs to the multi-finger gesture pipeline.
+ Once a session is latched it stays in the pipeline until every tracked finger lifted.
+ */
+- (BOOL)shouldHandleMultiFingerSwipes:(NSSet<TUCTouch *> *)activeTouches {
+    if (self.swipeTrackingActive) {
+        return YES;
+    }
+    if (!self.threeFingerSwipesEnabled && !self.fourFingerSwipesEnabled) {
+        return NO;
+    }
+    if (activeTouches.count >= 4) {
+        return self.fourFingerSwipesEnabled;
+    }
+    if (activeTouches.count == 3) {
+        return self.threeFingerSwipesEnabled;
+    }
+    return NO;
+}
+
+
+- (void)handleMultiFingerSwipesWithTouches:(NSSet<TUCTouch *> *)activeTouches {
+
+    if (activeTouches.count >= 3) {
+        if (!self.swipeTrackingActive) {
+            self.swipeTrackingActive = YES;
+            self.swipeShortcutFired = NO;
+            self.multiFingerSessionStartDate = [NSDate date];
+            self.multiFingerSessionMaxCount = activeTouches.count;
+            [self.swipeStartPoints removeAllObjects];
+            [self.swipeTrackedUUIDs removeAllObjects];
+        }
+
+        if ((NSInteger)activeTouches.count > self.multiFingerSessionMaxCount) {
+            self.multiFingerSessionMaxCount = activeTouches.count;
+        }
+
+        // Record the start point of every touch that is not part of the session yet.
+        for (TUCTouch *touch in activeTouches) {
+            if (touch.locationID != self.cursorTouch.locationID) continue;
+            if (self.swipeStartPoints[touch.uuid] == nil) {
+                self.swipeStartPoints[touch.uuid] = [NSValue valueWithPoint:touch.location];
+                [self.swipeTrackedUUIDs addObject:touch.uuid];
+            }
+        }
+    }
+
+    // Gesture identification. Swipe wins once the travel threshold is crossed; a
+    // recognized long-press suspends swipe identification so hold and swipe can
+    // never both fire for one session.
+    if (self.swipeTrackingActive && self.identifiedMultitouchGesture == _TUCCursorGestureNone && !self.keyboardHoldActive) {
+        [self identifyMultiFingerSwipeWithTouches:activeTouches];
+
+        if (self.identifiedMultitouchGesture == _TUCCursorGestureNone) {
+            [self checkForMultiFingerLongPressWithTouches:activeTouches];
+        }
+    }
+
+    // The mapped keyboard shortcut fires exactly once, as soon as the gesture is recognized.
+    if (self.identifiedMultitouchGesture != _TUCCursorGestureNone && !self.swipeShortcutFired) {
+        self.swipeShortcutFired = YES;
+        [self performMouseEventForGesture:self.identifiedMultitouchGesture];
+    }
+
+    // The session ends when every finger that started it has lifted. Fingers that only
+    // came down afterwards don't keep it alive.
+    BOOL trackedTouchStillActive = NO;
+    for (TUCTouch *touch in activeTouches) {
+        if ([self.swipeTrackedUUIDs containsObject:touch.uuid]) {
+            trackedTouchStillActive = YES;
+            break;
+        }
+    }
+    if (activeTouches.count >= 3 || trackedTouchStillActive) {
+        return;
+    }
+
+    // Session over: end a possibly active keyboard hold, or evaluate the session as a tap.
+    if (self.keyboardHoldActive) {
+        [self.delegate endKeyboardHoldForGesture:self.activeKeyboardHoldGesture];
+    } else if (self.identifiedMultitouchGesture == _TUCCursorGestureNone) {
+        [self checkForMultiFingerTap];
+    }
+
+    // Remove the ended swipe touches immediately so their pending release cannot
+    // post a stray click, drag or scroll after the gesture.
+    for (NSUUID *uuid in self.swipeTrackedUUIDs) {
+        NSPredicate *predicate = [NSPredicate predicateWithFormat:@"uuid == %@", uuid];
+        TUCTouch *touch = [[self.touchSet filteredSetUsingPredicate:predicate] anyObject];
+        if (touch) {
+            [self removeTouch:touch now:YES];
+        }
+    }
+
+    // If an untracked finger (one that landed mid-swipe) is still down, hand it the cursor.
+    if (!self.cursorTouch.isActive) {
+        if (activeTouches.count > 0) {
+            self.cursorTouch = [activeTouches anyObject];
+        }
+        self.cursorTouchQualifiedForTap = NO;
+    }
+
+    [self resetSwipeTracking];
+}
+
+
+/**
+ Averages the travel (mm) of all tracked touches that are present in `touches`.
+ Returns NO if fewer than three tracked touches could be evaluated.
+ */
+- (BOOL)computeAverageTravelDX:(CGFloat *)outDX dy:(CGFloat *)outDY ofTouches:(NSSet<TUCTouch *> *)touches {
+    CGFloat sumDX = 0;
+    CGFloat sumDY = 0;
+    NSInteger trackedCount = 0;
+
+    for (TUCTouch *touch in touches) {
+        NSValue *startValue = self.swipeStartPoints[touch.uuid];
+        if (startValue == nil) continue;
+
+        TUCScreen *screen = [self touchscreenForLocationID:touch.locationID];
+        CGPoint start = startValue.pointValue;
+
+        // relative point × physical size = mm travelled on the glass
+        sumDX += (touch.location.x - start.x) * screen.nativePhysicalSize.width;
+        sumDY += (touch.location.y - start.y) * screen.nativePhysicalSize.height;
+        trackedCount++;
+    }
+
+    if (trackedCount < 3) return NO;
+
+    *outDX = sumDX / trackedCount;
+    *outDY = sumDY / trackedCount;
+    return YES;
+}
+
+
+/**
+ Computes the average travel of all tracked fingers (in mm, per axis using each touch's own
+ screen dimensions) and classifies the dominant direction once it exceeds `swipeThreshold`.
+ */
+- (void)identifyMultiFingerSwipeWithTouches:(NSSet<TUCTouch *> *)activeTouches {
+    BOOL useFourFingerGestures = activeTouches.count >= 4 && self.fourFingerSwipesEnabled;
+    if (!useFourFingerGestures && !self.threeFingerSwipesEnabled) {
+        return;
+    }
+
+    CGFloat avgDX = 0;
+    CGFloat avgDY = 0;
+    if (![self computeAverageTravelDX:&avgDX dy:&avgDY ofTouches:activeTouches]) return;
+
+    BOOL horizontal = fabs(avgDX) > fabs(avgDY);
+    TUCCursorGesture gesture;
+
+    if (horizontal) {
+        if (fabs(avgDX) < self.swipeThreshold) return;
+        if (avgDX > 0) {
+            gesture = useFourFingerGestures ? TUCCursorGestureFourFingerSwipeRight : TUCCursorGestureThreeFingerSwipeRight;
+        } else {
+            gesture = useFourFingerGestures ? TUCCursorGestureFourFingerSwipeLeft : TUCCursorGestureThreeFingerSwipeLeft;
+        }
+    } else {
+        if (fabs(avgDY) < self.swipeThreshold) return;
+        // relative y grows downward, so positive dy is a downward swipe
+        if (avgDY > 0) {
+            gesture = useFourFingerGestures ? TUCCursorGestureFourFingerSwipeDown : TUCCursorGestureThreeFingerSwipeDown;
+        } else {
+            gesture = useFourFingerGestures ? TUCCursorGestureFourFingerSwipeUp : TUCCursorGestureThreeFingerSwipeUp;
+        }
+    }
+
+    self.identifiedMultitouchGesture = gesture;
+}
+
+
+/**
+ Recognizes a long-press once the fingers have stayed nearly still for `longPressDuration`.
+ Called only while no swipe has been identified and no hold is active, so a recognized
+ hold permanently wins over a swipe for the rest of the session.
+ */
+- (void)checkForMultiFingerLongPressWithTouches:(NSSet<TUCTouch *> *)activeTouches {
+    if (self.keyboardHoldActive) return;
+    if (self.multiFingerSessionStartDate == nil) return;
+    if (-[self.multiFingerSessionStartDate timeIntervalSinceNow] < self.longPressDuration) return;
+
+    CGFloat avgDX = 0;
+    CGFloat avgDY = 0;
+    if (![self computeAverageTravelDX:&avgDX dy:&avgDY ofTouches:activeTouches]) return;
+    if (sqrt(avgDX * avgDX + avgDY * avgDY) >= kTapTravelThresholdMM) return;
+
+    BOOL useFourFingerGestures = activeTouches.count >= 4 && self.fourFingerSwipesEnabled;
+    if (!useFourFingerGestures && !self.threeFingerSwipesEnabled) return;
+
+    TUCCursorGesture gesture = useFourFingerGestures
+        ? TUCCursorGestureFourFingerLongPress
+        : TUCCursorGestureThreeFingerLongPress;
+
+    self.keyboardHoldActive = YES;
+    self.activeKeyboardHoldGesture = gesture;
+    [self.delegate beginKeyboardHoldForGesture:gesture];
+}
+
+
+/**
+ Evaluates the finished session as a possible tap: the fingers must have barely moved
+ and lifted quickly. Only reached when neither a swipe nor a long-press was recognized.
+ */
+- (void)checkForMultiFingerTap {
+    if (self.multiFingerSessionStartDate == nil) return;
+
+    NSTimeInterval duration = -[self.multiFingerSessionStartDate timeIntervalSinceNow];
+    if (duration > kTapMaxDuration) return;
+
+    // The active set is already empty at session end, so evaluate the travel
+    // against the touches' last known positions still in the touch set.
+    NSMutableSet<TUCTouch *> *lastPositions = [NSMutableSet new];
+    for (NSUUID *uuid in self.swipeTrackedUUIDs) {
+        NSPredicate *predicate = [NSPredicate predicateWithFormat:@"uuid == %@", uuid];
+        TUCTouch *touch = [[self.touchSet filteredSetUsingPredicate:predicate] anyObject];
+        if (touch) [lastPositions addObject:touch];
+    }
+
+    CGFloat avgDX = 0;
+    CGFloat avgDY = 0;
+    if (![self computeAverageTravelDX:&avgDX dy:&avgDY ofTouches:lastPositions]) return;
+    if (sqrt(avgDX * avgDX + avgDY * avgDY) >= kTapTravelThresholdMM) return;
+
+    BOOL useFourFingerGestures = self.multiFingerSessionMaxCount >= 4 && self.fourFingerSwipesEnabled;
+    if (!useFourFingerGestures && !self.threeFingerSwipesEnabled) return;
+
+    TUCCursorGesture gesture = useFourFingerGestures
+        ? TUCCursorGestureFourFingerTap
+        : TUCCursorGestureThreeFingerTap;
+
+    [self performMouseEventForGesture:gesture];
+}
+
+
+- (void)resetSwipeTracking {
+    self.swipeTrackingActive = NO;
+    self.swipeShortcutFired = NO;
+    self.multiFingerSessionStartDate = nil;
+    self.multiFingerSessionMaxCount = 0;
+    self.keyboardHoldActive = NO;
+    self.activeKeyboardHoldGesture = _TUCCursorGestureNone;
+    [self.swipeStartPoints removeAllObjects];
+    [self.swipeTrackedUUIDs removeAllObjects];
+}
+
+
 - (void)performMouseEventForGesture:(TUCCursorGesture)gesture {
     TUCTouch *touch = self.cursorTouch;
     
@@ -400,10 +685,14 @@
             [utils magnifyLocationA:screenLocation
                           locationB:location2ndFinger
                          relativeP1:self.cursorTouch.location relP2:self.gestureAdditionalTouch.location];
-            
+
             if (touch.phase == NSTouchPhaseEnded || self.gestureAdditionalTouch.phase == NSTouchPhaseEnded) {
                 [utils stopMagnifying];
             }
+            break;
+
+        case TUCCursorActionKeyboardShortcut:
+            [self.delegate performKeyboardShortcutForGesture:gesture];
             break;
     }
 }
@@ -426,6 +715,8 @@
             
         case TUCCursorGesturePinch:             return TUCCursorActionMagnify;
         case _TUCCursorGestureNone:             return TUCCursorActionNone;
+
+        default:                                return TUCCursorActionNone;
     }
 }
 
@@ -729,6 +1020,13 @@
         self.errorResistance = 0;
         
         self.ignoreOriginTouches = NO;
+
+        self.threeFingerSwipesEnabled = NO;
+        self.fourFingerSwipesEnabled = NO;
+        self.swipeThreshold = 10;
+        self.longPressDuration = 0.35;
+        self.swipeStartPoints = [NSMutableDictionary new];
+        self.swipeTrackedUUIDs = [NSMutableSet new];
     }
     return self;
 }

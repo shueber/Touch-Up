@@ -33,6 +33,28 @@ struct SettingsView: View {
         }
     }
     
+    var inputMonitoringBanner: some View {
+        Group {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Input Monitoring Required")
+                    .font(.headline)
+                Text("macOS requires Input Monitoring permission to read the touchscreen. Click Grant Access, enable Touch Up in the list that opens, then relaunch the app.")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
+            }
+
+            HStack {
+                Spacer()
+                Button {
+                    model.requestInputMonitoringAccess()
+                } label: {
+                    Text("Grant Access")
+                }
+                .buttonStyle(BorderedProminentButtonStyle())
+            }
+        }
+    }
+
     var top: some View {
         Toggle(model.uiLabels(for: \.isPublishingMouseEventsEnabled).title, isOn: $model.isPublishingMouseEventsEnabled)
     }
@@ -72,6 +94,40 @@ struct SettingsView: View {
     }
     
     
+    var multiFingerShortcutSettings: some View {
+        Group {
+            ForEach(MultiFingerGesture.threeFingerCases) { gesture in
+                gesturePicker(for: gesture)
+            }
+            ForEach(MultiFingerGesture.fourFingerCases) { gesture in
+                gesturePicker(for: gesture)
+            }
+        }
+    }
+
+    private func gesturePicker(for gesture: MultiFingerGesture) -> some View {
+        let selection = Binding<String?> {
+            model.gestureShortcutMappings[gesture.rawValue]
+        } set: { newValue in
+            if let newValue {
+                model.gestureShortcutMappings[gesture.rawValue] = newValue
+            } else {
+                model.gestureShortcutMappings.removeValue(forKey: gesture.rawValue)
+            }
+        }
+
+        return Picker(selection: selection) {
+            Text("Off").tag(String?.none)
+            ForEach(ShortcutPreset.catalog) { preset in
+                Text("\(preset.display)   \(preset.name)")
+                    .tag(Optional(preset.id))
+            }
+        } label: {
+            Text(gesture.title)
+        }
+    }
+
+
     var parameterSettings: some View {
         Group {
             Slider(value: $model.holdDuration, in: 0.0...0.16, step: 0.02){
@@ -155,9 +211,18 @@ struct SettingsView: View {
                     }
 
                 }
-                
+
+                if !model.isInputMonitoringGranted {
+                    Section {
+                        inputMonitoringBanner
+                    }
+                }
+
                 Section {
                     top
+                    Toggle(isOn: $model.isTouchIndicatorEnabled) {
+                        SettingsExplanationLabel(labels: model.uiLabels(for: \.isTouchIndicatorEnabled))
+                    }
                 }
 
                 Section("Touchscreens") {
@@ -167,7 +232,15 @@ struct SettingsView: View {
                 Section("Gestures") {
                     gestureSettings
                 }
-                
+
+                Section {
+                    multiFingerShortcutSettings
+                } header: {
+                    Text("Multi-Finger Shortcuts")
+                } footer: {
+                    Text("A swipe fires its shortcut once the fingers travel far enough; a quick lift without moving counts as a tap; holding still turns into a long-press that keeps the mapped key pressed until the fingers lift. While the fingers are down, mouse input is suppressed. Set a group to \"Off\" to keep the default cursor behavior for that finger count.")
+                }
+
                 Section("Parameters") {
                     parameterSettings
                 }
@@ -187,6 +260,18 @@ struct SettingsView: View {
 
         } else {
             return List {
+                if !model.isAccessibilityAccessGranted {
+                    LegacySection {
+                        welcomeBanner
+                    }
+                }
+
+                if !model.isInputMonitoringGranted {
+                    LegacySection {
+                        inputMonitoringBanner
+                    }
+                }
+
                 LegacySection {
                     top
                 }
@@ -198,7 +283,11 @@ struct SettingsView: View {
                 LegacySection(title: "Gestures") {
                     gestureSettings
                 }
-                
+
+                LegacySection(title: "Multi-Finger Shortcuts") {
+                    multiFingerShortcutSettings
+                }
+
                 LegacySection(title: "Parameters") {
                     parameterSettings
                 }

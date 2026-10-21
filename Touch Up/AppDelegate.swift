@@ -20,21 +20,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     @IBOutlet weak var statusMenu: NSMenu!
     @IBOutlet weak var activationMenuItem: NSMenuItem!
-    
+
+    var touchIndicatorItem: NSMenuItem!
+    var touchIndicatorOverlay: TouchIndicatorOverlay?
+
     var observers = [AnyCancellable]()
-    
-    
-    
+
+
+
     lazy var settingsWindow: SettingsWindow = {
         return SettingsWindow.window(model: self.model)
     }()
-    
+
     lazy var debugOverlay: DebugOverlay = {
         return DebugOverlay.overlay(model: self.model)
     }()
-    
+
     @IBAction func toggleActivationMenu(_ sender: Any) {
         self.model.isPublishingMouseEventsEnabled.toggle()
+    }
+
+    @objc func toggleTouchIndicatorMenu(_ sender: Any) {
+        self.model.isTouchIndicatorEnabled.toggle()
     }
     
     
@@ -44,7 +51,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         self.statusItem.menu = self.statusMenu
-        
+
+        // "Show Touch Indicators" sits right under "Control Mouse with Touch".
+        touchIndicatorItem = NSMenuItem(title: "Show Touch Indicators",
+                                        action: #selector(toggleTouchIndicatorMenu(_:)),
+                                        keyEquivalent: "")
+        touchIndicatorItem.target = self
+        if let activationIndex = statusMenu.items.firstIndex(of: activationMenuItem) {
+            statusMenu.insertItem(touchIndicatorItem, at: activationIndex + 1)
+        } else {
+            statusMenu.addItem(touchIndicatorItem)
+        }
+        touchIndicatorOverlay = TouchIndicatorOverlay(model: model)
+
         self.observers.append(
             self.model.$connectionState
                 .receive(on: DispatchQueue.main)
@@ -61,6 +80,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 .receive(on: DispatchQueue.main)
                 .sink{
                     self.activationMenuItem.state = $0 ? .on : .off
+                }
+        )
+
+        self.observers.append(
+            self.model.$isTouchIndicatorEnabled
+                .receive(on: DispatchQueue.main)
+                .sink{
+                    self.touchIndicatorItem.state = $0 ? .on : .off
                 }
         )
         

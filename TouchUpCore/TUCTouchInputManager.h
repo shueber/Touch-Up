@@ -62,6 +62,33 @@ NS_ASSUME_NONNULL_BEGIN
 @property BOOL ignoreOriginTouches;
 
 
+/**
+ Enable recognition of three-finger gestures: swipes (up/down/left/right), taps and
+ long-presses. While three or more fingers are on the surface, all mouse events are
+ suppressed so a gesture cannot leak into cursor movement or scrolling. The recognized
+ gesture is reported via `actionForGesture:` / the keyboard-shortcut delegate methods.
+ */
+@property BOOL threeFingerSwipesEnabled;
+
+/**
+ Same as `threeFingerSwipesEnabled`, but for four-finger gestures. With four or more
+ fingers on the surface, four-finger gestures take precedence over three-finger ones.
+ */
+@property BOOL fourFingerSwipesEnabled;
+
+/**
+ Average distance in mm all tracked fingers need to travel in one direction before a
+ multi-finger swipe is recognized. The default is 10.
+ */
+@property CGFloat swipeThreshold;
+
+/**
+ How long three or four fingers must stay still (travel below the tap threshold)
+ before the session is recognized as a long-press gesture. The default is 0.35 s.
+ */
+@property NSTimeInterval longPressDuration;
+
+
 - (void)start;
 
 - (void)stop;

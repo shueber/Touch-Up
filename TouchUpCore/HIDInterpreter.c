@@ -647,6 +647,17 @@ static HIDDeviceState* RegisterTouchDevice(IOHIDDeviceRef dev, uint32_t location
     void *context = (void *)dev;
 
     IOHIDQueueRef queue = IOHIDQueueCreate(kCFAllocatorDefault, dev, 1000, kNilOptions);
+    if (!queue) {
+        // On recent macOS versions IOHIDQueueCreate fails when the process lacks the
+        // Input Monitoring permission for this app (TCC ties the grant to the code
+        // signature). Bail out gracefully instead of crashing on a NULL queue.
+        fprintf(stderr,
+                "Touch Up: IOHIDQueueCreate failed for locationID 0x%08x. "
+                "Grant Input Monitoring permission to this app in System Settings > Privacy & Security, then relaunch.\n",
+                locationID);
+        DeallocateDeviceState(dev);
+        return NULL;
+    }
     IOHIDQueueRegisterValueAvailableCallback(queue, Handle_QueueValueAvailable, context);
     IOHIDQueueStart(queue);
     device->queue = queue;
@@ -813,7 +824,13 @@ void OpenHIDManager(void *delegate) {
                                     kCFRunLoopCommonModes);
     
     IOHIDOptionsType openOptions = gSeizeTouchDevices ? kIOHIDOptionsTypeSeizeDevice : kIOHIDOptionsTypeNone;
-    IOHIDManagerOpen(gHidManager, openOptions);
+    IOReturn openResult = IOHIDManagerOpen(gHidManager, openOptions);
+    if (openResult != kIOReturnSuccess) {
+        fprintf(stderr,
+                "Touch Up: IOHIDManagerOpen failed (0x%08x). "
+                "Grant Input Monitoring permission to this app in System Settings > Privacy & Security, then relaunch.\n",
+                openResult);
+    }
 }
 
 

@@ -1,0 +1,56 @@
+name: Build
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Touch Up.app
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build (Release, unsigned)
+        run: |
+          xcodebuild \
+            -project "Touch Up.xcodeproj" \
+            -target "Touch Up" \
+            -configuration Release \
+            SYMROOT="$PWD/build" \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Ad-hoc sign & package
+        run: |
+          APP="build/Release/Touch Up.app"
+          codesign -s - --force --deep "$APP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" Touch-Up.app.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Touch-Up.app
+          path: build/Release/Touch Up.app
+          if-no-files-found: error
+
+      - name: Attach to rolling CI release
+        # Only the fork publishes rolling releases; upstream just keeps the artifact.
+        if: github.event_name == 'push' && github.repository == 'OnesZhang/Touch-Up'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ci-build --target "$GITHUB_SHA" \
+            --title "CI build" --notes "Automated build from $GITHUB_SHA" 2>/dev/null || true
+          gh release upload ci-build Touch-Up.app.zip --clobber
